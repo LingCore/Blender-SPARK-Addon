@@ -17,7 +17,7 @@ class EXPORT_OT_batch_obj_with_origin(Operator):
     """批量导出OBJ文件并生成原点信息"""
     bl_idname = "export.batch_obj_with_origin"
     bl_label = "批量导出OBJ"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}
 
     export_path: StringProperty(
         name="导出路径",
