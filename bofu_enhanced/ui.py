@@ -30,8 +30,8 @@ class VIEW3D_MT_PIE_bofu_tools(Menu):
         # 右 (East) - 名称批量替换
         pie.operator("object.batch_rename_plus", text="名称批量替换", icon='SORTALPHA')
         
-        # 下 (South) - 批量应用材质
-        pie.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
+        # 下 (South) - 材质工具（弹出独立菜单）
+        pie.operator("bofu.popup_material_menu", text="材质工具", icon='MATERIAL')
         
         # 上 (North) - 批量导出OBJ
         pie.operator("export.batch_obj_with_origin", text="批量导出OBJ", icon='EXPORT')
@@ -57,6 +57,38 @@ class VIEW3D_MT_PIE_bofu_tools(Menu):
         
         # 右下 (Southeast) - 对齐工具（弹出独立菜单，不打断饼图）
         pie.operator("bofu.popup_align_menu", text="对齐工具", icon='ALIGN_CENTER')
+
+
+class VIEW3D_MT_material_tools(Menu):
+    """材质工具子菜单"""
+    bl_idname = "VIEW3D_MT_material_tools"
+    bl_label = "材质工具"
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # 批量应用材质
+        layout.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
+        
+        layout.separator()
+        
+        # 材质槽整理
+        layout.operator("material.cleanup_slots", text="整理材质槽", icon='BRUSH_DATA')
+        
+        # 清理未使用材质
+        layout.operator("material.cleanup_unused", text="清理未使用材质", icon='TRASH')
+        
+        layout.separator()
+        
+        # 材质同步开关
+        if hasattr(context.scene, 'misc_settings'):
+            settings = context.scene.misc_settings
+            icon = 'CHECKBOX_HLT' if settings.material_sync_enabled else 'CHECKBOX_DEHLT'
+            layout.prop(settings, "material_sync_enabled", icon=icon)
+            if settings.material_sync_enabled:
+                row = layout.row()
+                row.alert = True
+                row.label(text="颜色/金属度/糙度 自动同步中", icon='LINKED')
 
 
 class VIEW3D_MT_misc_tools(Menu):
@@ -193,6 +225,17 @@ class BOFU_OT_popup_misc_menu(Operator):
 
     def execute(self, context):
         bpy.ops.wm.call_menu(name="VIEW3D_MT_misc_tools")
+        return {'FINISHED'}
+
+
+class BOFU_OT_popup_material_menu(Operator):
+    """弹出材质工具菜单"""
+    bl_idname = "bofu.popup_material_menu"
+    bl_label = "材质工具"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_material_tools")
         return {'FINISHED'}
 
 
@@ -387,6 +430,7 @@ class TRANSFORM_PT_precise_panel(Panel):
 
 classes = (
     VIEW3D_MT_PIE_bofu_tools,
+    VIEW3D_MT_material_tools,
     VIEW3D_MT_misc_tools,
     VIEW3D_MT_annotation_manage,
     VIEW3D_MT_align_tools,
@@ -394,5 +438,6 @@ classes = (
     BOFU_OT_popup_annotation_menu,
     BOFU_OT_popup_align_menu,
     BOFU_OT_popup_misc_menu,
+    BOFU_OT_popup_material_menu,
     TRANSFORM_PT_precise_panel,
 )

@@ -2,12 +2,16 @@
 """
 bofu_enhanced/operators_material.py
 
-批量材质管理相关操作符
+批量材质管理相关操作符，包括：
+- MATERIAL_OT_apply_to_selected: 批量应用材质
+- MATERIAL_OT_cleanup_unused: 清理未使用材质
+- MATERIAL_OT_cleanup_slots: 材质槽整理
+- 材质自动同步系统
 """
 
 import bpy
 from bpy.types import Operator
-from bpy.props import StringProperty, EnumProperty
+from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 
 class MATERIAL_OT_apply_to_selected(Operator):
@@ -147,6 +151,434 @@ class MATERIAL_OT_apply_to_selected(Operator):
             return {'CANCELLED'}
 
 
+# ==================== 清理未使用材质 ====================
+
+class MATERIAL_OT_cleanup_unused(Operator):
+    """清理场景中未使用的材质"""
+    bl_idname = "material.cleanup_unused"
+    bl_label = "清理未使用材质"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    include_fake_user: BoolProperty(
+        name="包含假用户材质",
+        description="同时删除设置了假用户（F标记）的未使用材质",
+        default=False
+    )
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # 获取实际使用的材质
+        used_materials = self._get_actually_used_materials()
+        
+        # 统计未使用材质
+        unused_materials = self._get_unused_materials(used_materials)
+        fake_user_unused = [m for m in unused_materials if m.use_fake_user]
+        no_fake_user_unused = [m for m in unused_materials if not m.use_fake_user]
+        
+        box = layout.box()
+        box.label(text="材质统计:", icon='INFO')
+        box.label(text=f"  场景材质总数: {len(bpy.data.materials)}")
+        box.label(text=f"  实际被对象使用: {len(used_materials)}")
+        box.label(text=f"  未被任何对象使用: {len(unused_materials)}")
+        if fake_user_unused:
+            box.label(text=f"    其中有假用户(F): {len(fake_user_unused)}")
+        if no_fake_user_unused:
+            box.label(text=f"    其中无假用户: {len(no_fake_user_unused)}")
+        
+        layout.separator()
+        layout.prop(self, "include_fake_user")
+        
+        if not self.include_fake_user and fake_user_unused:
+            box = layout.box()
+            box.label(text=f"提示: {len(fake_user_unused)} 个未使用材质有假用户(F)标记", icon='INFO')
+            box.label(text="勾选上方选项可一并清理")
+        
+        if self.include_fake_user and fake_user_unused:
+            box = layout.box()
+            box.alert = True
+            box.label(text="⚠️ 将同时删除假用户材质", icon='ERROR')
+        
+        # 预览要删除的材质
+        materials_to_show = self._get_materials_to_remove(used_materials)
+        if materials_to_show:
+            layout.separator()
+            box = layout.box()
+            box.label(text=f"将删除的材质 ({len(materials_to_show)}):", icon='TRASH')
+            preview_count = min(10, len(materials_to_show))
+            for i in range(preview_count):
+                mat = materials_to_show[i]
+                icon = 'FAKE_USER_ON' if mat.use_fake_user else 'MATERIAL'
+                box.label(text=f"  • {mat.name}", icon=icon)
+            if len(materials_to_show) > 10:
+                box.label(text=f"  ... 还有 {len(materials_to_show) - 10} 个材质")
+        else:
+            layout.separator()
+            box = layout.box()
+            box.label(text="没有需要清理的材质", icon='CHECKMARK')
+    
+    def _get_actually_used_materials(self):
+        """获取实际被对象使用的材质集合（遍历所有对象）"""
+        used = set()
+        
+        # 遍历所有对象的材质槽
+        for obj in bpy.data.objects:
+            if obj.type == 'MESH' and obj.data:
+                for slot in obj.material_slots:
+                    if slot.material:
+                        used.add(slot.material.name)
+            # 也检查曲线、文本等其他类型
+            elif hasattr(obj.data, 'materials'):
+                for mat in obj.data.materials:
+                    if mat:
+                        used.add(mat.name)
+        
+        return used
+    
+    def _get_unused_materials(self, used_materials):
+        """获取未被任何对象使用的材质列表"""
+        unused = []
+        for mat in bpy.data.materials:
+            if mat.name not in used_materials:
+                unused.append(mat)
+        return unused
+    
+    def _get_materials_to_remove(self, used_materials):
+        """根据设置获取要删除的材质列表"""
+        to_remove = []
+        for mat in bpy.data.materials:
+            if mat.name not in used_materials:
+                # 未被对象使用
+                if mat.use_fake_user:
+                    # 有假用户，需要勾选选项才删除
+                    if self.include_fake_user:
+                        to_remove.append(mat)
+                else:
+                    # 无假用户，直接可删除
+                    to_remove.append(mat)
+        return to_remove
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=380)
+    
+    def execute(self, context):
+        # 获取实际使用的材质
+        used_materials = self._get_actually_used_materials()
+        
+        # 收集要删除的材质
+        materials_to_remove = self._get_materials_to_remove(used_materials)
+        
+        removed_count = 0
+        removed_names = []
+        
+        # 删除材质
+        for mat in materials_to_remove:
+            try:
+                mat_name = mat.name
+                bpy.data.materials.remove(mat)
+                removed_count += 1
+                removed_names.append(mat_name)
+            except Exception as e:
+                self.report({'WARNING'}, f"删除材质失败: {str(e)}")
+        
+        if removed_count > 0:
+            self.report({'INFO'}, f"已清理 {removed_count} 个未使用的材质")
+            print(f"[材质清理] 已删除: {', '.join(removed_names)}")
+        else:
+            self.report({'INFO'}, "没有未使用的材质需要清理")
+        
+        return {'FINISHED'}
+
+
+# ==================== 材质槽整理 ====================
+
+class MATERIAL_OT_cleanup_slots(Operator):
+    """整理选中对象的材质槽（删除空槽、合并重复材质）"""
+    bl_idname = "material.cleanup_slots"
+    bl_label = "整理材质槽"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    remove_empty: BoolProperty(
+        name="删除空材质槽",
+        description="删除没有分配材质的槽位",
+        default=True
+    )
+    
+    merge_duplicates: BoolProperty(
+        name="合并重复材质",
+        description="将同一材质的多个槽位合并为一个",
+        default=True
+    )
+    
+    reassign_faces: BoolProperty(
+        name="重新分配面",
+        description="合并时将原来使用重复槽位的面重新分配到保留的槽位",
+        default=True
+    )
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        
+        box = layout.box()
+        box.label(text=f"选中对象: {len(selected_meshes)} 个网格", icon='INFO')
+        
+        # 统计信息
+        total_slots = 0
+        empty_slots = 0
+        duplicate_slots = 0
+        
+        for obj in selected_meshes:
+            total_slots += len(obj.material_slots)
+            materials_seen = set()
+            for slot in obj.material_slots:
+                if slot.material is None:
+                    empty_slots += 1
+                elif slot.material.name in materials_seen:
+                    duplicate_slots += 1
+                else:
+                    materials_seen.add(slot.material.name)
+        
+        box.label(text=f"  材质槽总数: {total_slots}")
+        box.label(text=f"  空槽位: {empty_slots}")
+        box.label(text=f"  重复槽位: {duplicate_slots}")
+        
+        layout.separator()
+        layout.prop(self, "remove_empty")
+        layout.prop(self, "merge_duplicates")
+        if self.merge_duplicates:
+            sub = layout.row()
+            sub.enabled = self.merge_duplicates
+            sub.prop(self, "reassign_faces")
+        
+        # 预览每个对象的情况
+        if selected_meshes:
+            layout.separator()
+            box = layout.box()
+            box.label(text="对象材质槽详情:", icon='OBJECT_DATA')
+            preview_count = min(5, len(selected_meshes))
+            for i in range(preview_count):
+                obj = selected_meshes[i]
+                slot_count = len(obj.material_slots)
+                empty_count = sum(1 for s in obj.material_slots if s.material is None)
+                row = box.row()
+                row.label(text=f"  {obj.name}: {slot_count} 槽", icon='MESH_DATA')
+                if empty_count > 0:
+                    row.label(text=f"({empty_count} 空)")
+            if len(selected_meshes) > 5:
+                box.label(text=f"  ... 还有 {len(selected_meshes) - 5} 个对象")
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=380)
+    
+    def execute(self, context):
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        
+        if not selected_meshes:
+            self.report({'ERROR'}, "未选中任何网格对象")
+            return {'CANCELLED'}
+        
+        total_removed = 0
+        total_merged = 0
+        processed_count = 0
+        
+        for obj in selected_meshes:
+            removed, merged = self._cleanup_object_slots(obj)
+            total_removed += removed
+            total_merged += merged
+            if removed > 0 or merged > 0:
+                processed_count += 1
+        
+        # 构建报告信息
+        msg_parts = []
+        if total_removed > 0:
+            msg_parts.append(f"删除 {total_removed} 个空槽")
+        if total_merged > 0:
+            msg_parts.append(f"合并 {total_merged} 个重复槽")
+        
+        if msg_parts:
+            self.report({'INFO'}, f"已处理 {processed_count} 个对象: " + ", ".join(msg_parts))
+        else:
+            self.report({'INFO'}, "材质槽已经是整理好的状态")
+        
+        return {'FINISHED'}
+    
+    def _cleanup_object_slots(self, obj):
+        """清理单个对象的材质槽"""
+        import bmesh
+        
+        removed_count = 0
+        merged_count = 0
+        
+        # 确保在对象模式
+        was_edit_mode = obj.mode == 'EDIT'
+        if was_edit_mode:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # 第一步：合并重复材质
+        if self.merge_duplicates and self.reassign_faces:
+            merged_count = self._merge_duplicate_materials(obj)
+        
+        # 第二步：删除空槽
+        if self.remove_empty:
+            removed_count = self._remove_empty_slots(obj)
+        
+        # 恢复编辑模式
+        if was_edit_mode:
+            bpy.ops.object.mode_set(mode='EDIT')
+        
+        return removed_count, merged_count
+    
+    def _merge_duplicate_materials(self, obj):
+        """合并重复的材质槽"""
+        merged_count = 0
+        
+        if not obj.data.materials:
+            return 0
+        
+        # 建立材质到最小索引的映射
+        material_to_index = {}
+        index_mapping = {}  # 旧索引 -> 新索引
+        
+        for i, slot in enumerate(obj.material_slots):
+            mat = slot.material
+            if mat is None:
+                index_mapping[i] = i
+                continue
+            
+            if mat.name not in material_to_index:
+                material_to_index[mat.name] = i
+                index_mapping[i] = i
+            else:
+                # 这是重复材质
+                index_mapping[i] = material_to_index[mat.name]
+                merged_count += 1
+        
+        if merged_count == 0:
+            return 0
+        
+        # 重新分配面的材质索引
+        mesh = obj.data
+        for poly in mesh.polygons:
+            old_index = poly.material_index
+            if old_index in index_mapping:
+                poly.material_index = index_mapping[old_index]
+        
+        # 删除重复的材质槽（从后往前删除）
+        slots_to_remove = []
+        for i, slot in enumerate(obj.material_slots):
+            if slot.material and i != material_to_index.get(slot.material.name, i):
+                slots_to_remove.append(i)
+        
+        # 从后往前删除
+        for i in sorted(slots_to_remove, reverse=True):
+            obj.active_material_index = i
+            bpy.ops.object.material_slot_remove({'object': obj})
+        
+        return merged_count
+    
+    def _remove_empty_slots(self, obj):
+        """删除空的材质槽"""
+        removed_count = 0
+        
+        # 从后往前检查并删除空槽
+        i = len(obj.material_slots) - 1
+        while i >= 0:
+            if obj.material_slots[i].material is None:
+                # 检查是否有面使用这个槽
+                has_faces = False
+                for poly in obj.data.polygons:
+                    if poly.material_index == i:
+                        has_faces = True
+                        break
+                
+                if not has_faces:
+                    obj.active_material_index = i
+                    bpy.ops.object.material_slot_remove({'object': obj})
+                    removed_count += 1
+            i -= 1
+        
+        return removed_count
+
+
+# ==================== 材质预览面板 ====================
+
+class MATERIAL_PT_quick_preview(bpy.types.Panel):
+    """快速材质预览面板"""
+    bl_label = "材质预览"
+    bl_idname = "MATERIAL_PT_quick_preview"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Item"
+    bl_order = 10
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH'
+    
+    def draw(self, context):
+        layout = self.layout
+        obj = context.active_object
+        
+        if not obj or obj.type != 'MESH':
+            layout.label(text="请选择网格对象", icon='INFO')
+            return
+        
+        # 材质槽统计
+        slot_count = len(obj.material_slots)
+        empty_count = sum(1 for s in obj.material_slots if s.material is None)
+        
+        row = layout.row()
+        row.label(text=f"材质槽: {slot_count}", icon='MATERIAL')
+        if empty_count > 0:
+            row.label(text=f"({empty_count} 空)", icon='ERROR')
+        
+        layout.separator()
+        
+        # 材质列表预览
+        if obj.material_slots:
+            box = layout.box()
+            for i, slot in enumerate(obj.material_slots):
+                row = box.row(align=True)
+                
+                # 材质索引
+                row.label(text=f"{i}:")
+                
+                if slot.material:
+                    # 材质颜色预览
+                    mat = slot.material
+                    sub = row.row(align=True)
+                    sub.scale_x = 0.3
+                    sub.prop(mat, "diffuse_color", text="")
+                    
+                    # 材质名称
+                    row.label(text=mat.name)
+                    
+                    # 用户数
+                    if mat.users > 1:
+                        row.label(text=f"[{mat.users}]")
+                else:
+                    row.label(text="(空)", icon='ERROR')
+            
+            # 整理按钮
+            layout.separator()
+            row = layout.row(align=True)
+            row.operator("material.cleanup_slots", text="整理材质槽", icon='BRUSH_DATA')
+        else:
+            layout.label(text="无材质", icon='INFO')
+        
+        # 材质工具按钮
+        layout.separator()
+        box = layout.box()
+        box.label(text="材质工具:", icon='TOOL_SETTINGS')
+        col = box.column(align=True)
+        col.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
+        col.operator("material.cleanup_unused", text="清理未使用材质", icon='TRASH')
+
+
 # ==================== 材质自动同步系统 ====================
 
 # 存储材质的上一次状态，用于检测变化
@@ -273,4 +705,7 @@ def clear_material_cache():
 
 classes = (
     MATERIAL_OT_apply_to_selected,
+    MATERIAL_OT_cleanup_unused,
+    MATERIAL_OT_cleanup_slots,
+    MATERIAL_PT_quick_preview,
 )
