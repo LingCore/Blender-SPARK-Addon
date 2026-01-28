@@ -133,6 +133,15 @@ class AnnotationSettings(PropertyGroup):
     )
 
 
+class MiscSettings(PropertyGroup):
+    """杂项设置"""
+    material_sync_enabled: BoolProperty(
+        name="材质同步",
+        description="开启后，视图显示和 Principled BSDF 节点的颜色、金属度、糙度会自动双向同步",
+        default=True
+    )
+
+
 class TransformPlusProperties(PropertyGroup):
     """变换增强属性组"""
     only_modify_origin: BoolProperty(
@@ -160,6 +169,7 @@ classes = (
     BatchObjExportProperties,
     BatchMaterialProperties,
     AnnotationSettings,
+    MiscSettings,
     TransformPlusProperties,
 )
 
@@ -170,6 +180,7 @@ def register_properties():
     bpy.types.Scene.batch_obj_export_props = bpy.props.PointerProperty(type=BatchObjExportProperties)
     bpy.types.Scene.transform_plus_props = bpy.props.PointerProperty(type=TransformPlusProperties)
     bpy.types.Scene.annotation_settings = bpy.props.PointerProperty(type=AnnotationSettings)
+    bpy.types.Scene.misc_settings = bpy.props.PointerProperty(type=MiscSettings)
 
 
 def unregister_properties():
@@ -179,6 +190,7 @@ def unregister_properties():
         'batch_material_props',
         'transform_plus_props',
         'annotation_settings',
+        'misc_settings',
     ):
         try:
             delattr(bpy.types.Scene, attr)

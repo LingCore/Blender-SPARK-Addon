@@ -14,6 +14,7 @@ from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty, FloatProperty, BoolProperty
 from mathutils import Vector, Matrix
 
+from .config import Config
 from .utils import (
     axis_to_vec, reflect_point_across_plane, move_origin_keep_world_mesh,
     bake_modifiers_to_mesh, delete_side_by_plane_world
@@ -51,7 +52,7 @@ class OBJECT_OT_mirror_plus(Operator):
     bake_modifiers: BoolProperty(name="烘焙所有修改器", default=True)
     keep_only_mirrored: BoolProperty(name="只保留镜像侧", default=True)
     move_origin: BoolProperty(name="移动原点到镜像位置", default=True)
-    plane_eps: FloatProperty(name="平面容差", default=1e-6, min=0, precision=6)
+    plane_eps: FloatProperty(name="平面容差", default=Config.PLANE_EPSILON, min=0, precision=6)
 
     def draw(self, context):
         layout = self.layout

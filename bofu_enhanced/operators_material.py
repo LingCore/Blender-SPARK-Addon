@@ -147,6 +147,128 @@ class MATERIAL_OT_apply_to_selected(Operator):
             return {'CANCELLED'}
 
 
+# ==================== 材质自动同步系统 ====================
+
+# 存储材质的上一次状态，用于检测变化
+_material_cache = {}
+
+# 防止递归同步的标志
+_syncing = False
+
+
+def get_principled_bsdf(material):
+    """获取材质的 Principled BSDF 节点"""
+    if not material or not material.use_nodes:
+        return None
+    
+    for node in material.node_tree.nodes:
+        if node.type == 'BSDF_PRINCIPLED':
+            return node
+    return None
+
+
+def cache_material_state(material):
+    """缓存材质状态"""
+    principled = get_principled_bsdf(material)
+    if not principled:
+        return
+    
+    # 缓存视图显示参数（包含 Alpha）
+    viewport_color = tuple(material.diffuse_color[:4])
+    viewport_metallic = material.metallic
+    viewport_roughness = material.roughness
+    
+    # 缓存节点参数（包含 Alpha）
+    node_color = tuple(principled.inputs['Base Color'].default_value[:4]) if 'Base Color' in principled.inputs else (0.8, 0.8, 0.8, 1.0)
+    node_alpha = principled.inputs['Alpha'].default_value if 'Alpha' in principled.inputs else 1.0
+    node_metallic = principled.inputs['Metallic'].default_value if 'Metallic' in principled.inputs else 0.0
+    node_roughness = principled.inputs['Roughness'].default_value if 'Roughness' in principled.inputs else 0.5
+    
+    _material_cache[material.name] = {
+        'viewport_color': viewport_color,
+        'viewport_metallic': viewport_metallic,
+        'viewport_roughness': viewport_roughness,
+        'node_color': node_color,
+        'node_alpha': node_alpha,
+        'node_metallic': node_metallic,
+        'node_roughness': node_roughness,
+    }
+
+
+def sync_material_auto(material):
+    """自动同步材质参数（双向）"""
+    global _syncing
+    
+    if _syncing:
+        return
+    
+    principled = get_principled_bsdf(material)
+    if not principled:
+        return
+    
+    cache = _material_cache.get(material.name)
+    if not cache:
+        cache_material_state(material)
+        return
+    
+    _syncing = True
+    
+    try:
+        # 当前视图显示参数（包含 Alpha）
+        viewport_color = tuple(material.diffuse_color[:4])
+        viewport_metallic = material.metallic
+        viewport_roughness = material.roughness
+        
+        # 当前节点参数（包含 Alpha）
+        node_color = tuple(principled.inputs['Base Color'].default_value[:4]) if 'Base Color' in principled.inputs else (0.8, 0.8, 0.8, 1.0)
+        node_alpha = principled.inputs['Alpha'].default_value if 'Alpha' in principled.inputs else 1.0
+        node_metallic = principled.inputs['Metallic'].default_value if 'Metallic' in principled.inputs else 0.0
+        node_roughness = principled.inputs['Roughness'].default_value if 'Roughness' in principled.inputs else 0.5
+        
+        # 检测哪边发生了变化
+        viewport_changed = (
+            viewport_color != cache['viewport_color'] or
+            abs(viewport_metallic - cache['viewport_metallic']) > 0.001 or
+            abs(viewport_roughness - cache['viewport_roughness']) > 0.001
+        )
+        
+        node_changed = (
+            node_color != cache['node_color'] or
+            abs(node_alpha - cache.get('node_alpha', 1.0)) > 0.001 or
+            abs(node_metallic - cache['node_metallic']) > 0.001 or
+            abs(node_roughness - cache['node_roughness']) > 0.001
+        )
+        
+        if viewport_changed and not node_changed:
+            # 视图显示变化 → 同步到节点
+            if 'Base Color' in principled.inputs:
+                principled.inputs['Base Color'].default_value = viewport_color
+            if 'Alpha' in principled.inputs:
+                principled.inputs['Alpha'].default_value = viewport_color[3]
+            if 'Metallic' in principled.inputs:
+                principled.inputs['Metallic'].default_value = viewport_metallic
+            if 'Roughness' in principled.inputs:
+                principled.inputs['Roughness'].default_value = viewport_roughness
+        
+        elif node_changed and not viewport_changed:
+            # 节点变化 → 同步到视图显示
+            material.diffuse_color = (node_color[0], node_color[1], node_color[2], node_alpha)
+            material.metallic = node_metallic
+            material.roughness = node_roughness
+        
+        # 更新缓存
+        cache_material_state(material)
+    
+    finally:
+        _syncing = False
+
+
+def clear_material_cache():
+    """清除材质缓存"""
+    global _material_cache
+    _material_cache = {}
+
+
 # ==================== 类注册列表 ====================
 
 classes = (

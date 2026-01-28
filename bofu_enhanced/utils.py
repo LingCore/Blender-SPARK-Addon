@@ -14,6 +14,8 @@ import bmesh
 import math
 from mathutils import Vector, Matrix
 
+from .config import Config
+
 
 # ==================== 格式化函数 ====================
 
@@ -52,7 +54,7 @@ def move_origin_keep_world_mesh(obj, new_origin_world: Vector):
     """移动原点但保持网格世界位置不变"""
     mw = obj.matrix_world.copy()
     delta_world = new_origin_world - mw.translation.copy()
-    if delta_world.length < 1e-12:
+    if delta_world.length < Config.EPSILON:
         return
     inv3 = mw.inverted_safe().to_3x3()
     delta_local = inv3 @ delta_world
@@ -261,7 +263,15 @@ class AlignmentHelper:
 
 
 def get_unique_measure_name(base_name):
-    """生成唯一的测量对象名称"""
+    """
+    生成唯一的测量对象名称
+    
+    参数:
+        base_name: 基础名称
+    
+    返回:
+        唯一名称，格式为 base_name_001, base_name_002, ...
+    """
     index = 1
     while f"{base_name}_{index:03d}" in bpy.data.objects:
         index += 1

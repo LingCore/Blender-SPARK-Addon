@@ -6,18 +6,24 @@ bofu_enhanced/operators_transform.py
 """
 
 import bpy
+import bmesh
 from bpy.types import Operator
 
 from .utils import format_value
 
 
 class TRANSFORM_OT_copy_location(Operator):
-    """复制位置坐标到剪贴板（支持多选）"""
+    """复制位置坐标到剪贴板（支持多选，编辑模式下复制选中元素位置）"""
     bl_idname = "transform.copy_location"
     bl_label = "复制位置"
     bl_options = {'REGISTER'}
 
     def execute(self, context):
+        # 编辑模式：复制选中的点/线/面位置
+        if context.mode == 'EDIT_MESH':
+            return self.copy_edit_mode_location(context)
+        
+        # 对象模式：复制对象位置
         selected = [obj for obj in context.selected_objects]
         if not selected:
             self.report({'WARNING'}, "未选中任何对象")
@@ -33,6 +39,81 @@ class TRANSFORM_OT_copy_location(Operator):
         text = "\n".join(lines)
         context.window_manager.clipboard = text
         self.report({'INFO'}, f"已复制 {len(selected)} 个对象的位置")
+        return {'FINISHED'}
+    
+    def copy_edit_mode_location(self, context):
+        """编辑模式下复制选中元素的位置"""
+        obj = context.edit_object
+        if not obj or obj.type != 'MESH':
+            self.report({'WARNING'}, "请在网格编辑模式下使用")
+            return {'CANCELLED'}
+        
+        bm = bmesh.from_edit_mesh(obj.data)
+        mw = obj.matrix_world
+        
+        # 获取选择模式
+        select_mode = context.tool_settings.mesh_select_mode
+        lines = []
+        
+        if select_mode[2]:  # 面模式
+            selected_faces = [f for f in bm.faces if f.select]
+            if not selected_faces:
+                self.report({'WARNING'}, "未选中任何面")
+                return {'CANCELLED'}
+            
+            for i, face in enumerate(selected_faces):
+                # 计算面中心的世界坐标
+                center_local = face.calc_center_median()
+                center_world = mw @ center_local
+                x = format_value(center_world.x)
+                y = format_value(center_world.y)
+                z = format_value(center_world.z)
+                lines.append(f"面{face.index}({x}, {y}, {z})")
+            
+            element_name = "面"
+            count = len(selected_faces)
+            
+        elif select_mode[1]:  # 边模式
+            selected_edges = [e for e in bm.edges if e.select]
+            if not selected_edges:
+                self.report({'WARNING'}, "未选中任何边")
+                return {'CANCELLED'}
+            
+            for edge in selected_edges:
+                # 计算边中点的世界坐标
+                v1_world = mw @ edge.verts[0].co
+                v2_world = mw @ edge.verts[1].co
+                center_world = (v1_world + v2_world) / 2
+                x = format_value(center_world.x)
+                y = format_value(center_world.y)
+                z = format_value(center_world.z)
+                # 同时显示边长
+                length = (v2_world - v1_world).length
+                lines.append(f"边{edge.index}({x}, {y}, {z}) 长度:{format_value(length)}")
+            
+            element_name = "边"
+            count = len(selected_edges)
+            
+        else:  # 顶点模式
+            selected_verts = [v for v in bm.verts if v.select]
+            if not selected_verts:
+                self.report({'WARNING'}, "未选中任何顶点")
+                return {'CANCELLED'}
+            
+            for vert in selected_verts:
+                # 计算顶点的世界坐标
+                world_co = mw @ vert.co
+                x = format_value(world_co.x)
+                y = format_value(world_co.y)
+                z = format_value(world_co.z)
+                lines.append(f"顶点{vert.index}({x}, {y}, {z})")
+            
+            element_name = "顶点"
+            count = len(selected_verts)
+        
+        text = "\n".join(lines)
+        context.window_manager.clipboard = text
+        self.report({'INFO'}, f"已复制 {count} 个{element_name}的位置")
         return {'FINISHED'}
 
 

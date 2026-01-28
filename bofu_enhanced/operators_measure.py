@@ -3,6 +3,11 @@
 bofu_enhanced/operators_measure.py
 
 智能测量相关操作符
+
+重构后的结构：
+- OBJECT_OT_connect_origins: 主操作符类
+- 各测量模式的执行逻辑拆分为独立方法
+- numpy 导入优雅处理
 """
 
 import bpy
@@ -12,11 +17,115 @@ from bpy.types import Operator
 from bpy.props import EnumProperty, BoolProperty, FloatProperty
 from mathutils import Vector
 
+from .config import Config, MeasureMode, AnnotationType
 from .utils import get_unique_measure_name
-from .annotation import (
-    register_annotation, ensure_draw_handler_enabled
-)
+from .annotation import register_annotation, ensure_draw_handler_enabled
 
+
+# ==================== numpy 检测 ====================
+
+_numpy_available = None
+
+def check_numpy():
+    """检查 numpy 是否可用"""
+    global _numpy_available
+    if _numpy_available is None:
+        try:
+            import numpy
+            _numpy_available = True
+        except ImportError:
+            _numpy_available = False
+    return _numpy_available
+
+
+# ==================== 辅助函数 ====================
+
+def refresh_3d_views(context):
+    """刷新所有3D视图"""
+    for area in context.screen.areas:
+        if area.type == 'VIEW_3D':
+            area.tag_redraw()
+
+
+def get_selected_centers(edit_objects, select_mode):
+    """
+    获取编辑模式下选中元素的中心点
+    
+    返回: 世界坐标中心点列表
+    """
+    centers = []
+    
+    if select_mode[2]:  # 面模式
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.faces.ensure_lookup_table()
+            for f in bm_read.faces:
+                if f.select:
+                    face_center = f.calc_center_median()
+                    world_center = obj.matrix_world @ face_center
+                    centers.append(world_center.copy())
+    elif select_mode[1]:  # 边模式
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.edges.ensure_lookup_table()
+            for e in bm_read.edges:
+                if e.select:
+                    v1_world = obj.matrix_world @ e.verts[0].co
+                    v2_world = obj.matrix_world @ e.verts[1].co
+                    edge_center = (v1_world + v2_world) / 2
+                    centers.append(edge_center.copy())
+    else:  # 顶点模式
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.verts.ensure_lookup_table()
+            for v in bm_read.verts:
+                if v.select:
+                    world_co = obj.matrix_world @ v.co
+                    centers.append(world_co.copy())
+    
+    return centers
+
+
+def get_mode_name(select_mode):
+    """获取当前选择模式名称"""
+    if select_mode[2]:
+        return "面"
+    elif select_mode[1]:
+        return "边"
+    return "顶点"
+
+
+def create_measure_object(context, name, points, edges_definition):
+    """
+    创建测量辅助几何体
+    
+    参数:
+        context: Blender context
+        name: 对象名称
+        points: 顶点坐标列表
+        edges_definition: 边定义，如 [(0, 1), (1, 2)]
+    
+    返回: 创建的对象
+    """
+    obj_name = get_unique_measure_name(name)
+    mesh = bpy.data.meshes.new(obj_name)
+    measure_obj = bpy.data.objects.new(obj_name, mesh)
+    context.collection.objects.link(measure_obj)
+    
+    bm = bmesh.new()
+    verts = [bm.verts.new(p) for p in points]
+    bm.verts.ensure_lookup_table()
+    
+    for v1_idx, v2_idx in edges_definition:
+        bm.edges.new((verts[v1_idx], verts[v2_idx]))
+    
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    return measure_obj
+
+
+# ==================== 主操作符类 ====================
 
 class OBJECT_OT_connect_origins(Operator):
     """智能测量工具：支持距离、角度、半径等多种测量模式"""
@@ -27,15 +136,15 @@ class OBJECT_OT_connect_origins(Operator):
     measure_mode: EnumProperty(
         name="测量模式",
         items=[
-            ('CENTER_DISTANCE', '通用距离', '测量点/线/面之间的距离，支持灵活的轴锁定（可锁定0/1/2个轴）'),
-            ('EDGE_LENGTH', '边长测量', '测量选中边的长度（不创建几何体）'),
-            ('XYZ_SPLIT', '分轴测量（XYZ）', '同时显示X、Y、Z三个方向的距离（自动跳过无差异的轴）'),
-            ('ANGLE_EDGES', '两边夹角', '选择2条边，计算两条边的夹角'),
-            ('ANGLE_FACES', '两面夹角', '选择2个面，计算法线夹角（适用于弯管、弯头等）'),
-            ('ANGLE_VERTS', '顶点角度', '2点:线段与轴夹角; 3+点:每个顶点的角度（不创建几何体）'),
-            ('RADIUS', '半距/全距（半径/直径）', '选择2个点/边/面，计算距离的一半和全长；或选择1个圆形面/3+个点拟合圆'),
+            (MeasureMode.CENTER_DISTANCE, '通用距离', '测量点/线/面之间的距离，支持灵活的轴锁定（可锁定0/1/2个轴）'),
+            (MeasureMode.EDGE_LENGTH, '边长测量', '测量选中边的长度（不创建几何体）'),
+            (MeasureMode.XYZ_SPLIT, '分轴测量（XYZ）', '同时显示X、Y、Z三个方向的距离（自动跳过无差异的轴）'),
+            (MeasureMode.ANGLE_EDGES, '两边夹角', '选择2条边，计算两条边的夹角'),
+            (MeasureMode.ANGLE_FACES, '两面夹角', '选择2个面，计算法线夹角（适用于弯管、弯头等）'),
+            (MeasureMode.ANGLE_VERTS, '顶点角度', '2点:线段与轴夹角; 3+点:每个顶点的角度（不创建几何体）'),
+            (MeasureMode.RADIUS, '半距/全距（半径/直径）', '选择2个点/边/面，计算距离的一半和全长；或选择1个圆形面/3+个点拟合圆'),
         ],
-        default='CENTER_DISTANCE',
+        default=MeasureMode.CENTER_DISTANCE,
     )
     
     create_geometry: BoolProperty(
@@ -63,78 +172,87 @@ class OBJECT_OT_connect_origins(Operator):
         layout = self.layout
         layout.prop(self, "measure_mode")
         
-        if self.measure_mode == 'ANGLE_VERTS':
+        if self.measure_mode == MeasureMode.ANGLE_VERTS:
             layout.separator()
             box = layout.box()
             box.label(text="顶点角度模式不创建新几何体", icon='INFO')
             box.label(text="   2点: 计算线段与坐标轴的夹角")
             box.label(text="   3+点: 计算每个顶点的角度")
-        elif self.measure_mode == 'ANGLE_EDGES':
+        elif self.measure_mode == MeasureMode.ANGLE_EDGES:
             layout.separator()
             box = layout.box()
             box.label(text="选择2条边，计算夹角", icon='INFO')
-        elif self.measure_mode == 'EDGE_LENGTH':
+        elif self.measure_mode == MeasureMode.EDGE_LENGTH:
             layout.separator()
             box = layout.box()
             box.label(text="边长测量模式不创建新几何体", icon='INFO')
-        elif self.measure_mode == 'CENTER_DISTANCE':
-            layout.separator()
-            box = layout.box()
-            box.label(text="通用距离测量（增强版）", icon='INFO')
-            layout.separator()
-            
-            box2 = layout.box()
-            box2.label(text="轴锁定设置:", icon='LOCKED')
-            row = box2.row(align=True)
-            row.prop(self, "lock_x", toggle=True)
-            row.prop(self, "lock_y", toggle=True)
-            row.prop(self, "lock_z", toggle=True)
-            
-            locked_axes = []
-            if self.lock_x:
-                locked_axes.append('X')
-            if self.lock_y:
-                locked_axes.append('Y')
-            if self.lock_z:
-                locked_axes.append('Z')
-            
-            if not locked_axes:
-                box2.label(text="   当前: 3D空间距离", icon='EMPTY_AXIS')
-            elif len(locked_axes) == 1:
-                free_axes = [a for a in ['X', 'Y', 'Z'] if a not in locked_axes]
-                box2.label(text=f"   当前: {free_axes[0]}{free_axes[1]}平面距离", icon='MESH_PLANE')
-            elif len(locked_axes) == 2:
-                free_axis = [a for a in ['X', 'Y', 'Z'] if a not in locked_axes][0]
-                box2.label(text=f"   当前: 仅{free_axis}轴方向距离", icon='EMPTY_SINGLE_ARROW')
-            else:
-                box2.label(text="   不能锁定全部3个轴", icon='ERROR')
-            
-            layout.separator()
-            box3 = layout.box()
-            box3.label(text="偏移量设置:", icon='ORIENTATION_GLOBAL')
-            row = box3.row()
-            row.prop(self, "center_offset_x", text="X")
-            row.prop(self, "center_offset_y", text="Y")
-            row.prop(self, "center_offset_z", text="Z")
-            layout.prop(self, "create_geometry")
+        elif self.measure_mode == MeasureMode.CENTER_DISTANCE:
+            self._draw_center_distance_options(layout)
         else:
             layout.separator()
             layout.prop(self, "create_geometry")
+    
+    def _draw_center_distance_options(self, layout):
+        """绘制通用距离模式的选项"""
+        layout.separator()
+        box = layout.box()
+        box.label(text="通用距离测量（增强版）", icon='INFO')
+        layout.separator()
+        
+        # 轴锁定设置
+        box2 = layout.box()
+        box2.label(text="轴锁定设置:", icon='LOCKED')
+        row = box2.row(align=True)
+        row.prop(self, "lock_x", toggle=True)
+        row.prop(self, "lock_y", toggle=True)
+        row.prop(self, "lock_z", toggle=True)
+        
+        locked_axes = self._get_locked_axes()
+        
+        if not locked_axes:
+            box2.label(text="   当前: 3D空间距离", icon='EMPTY_AXIS')
+        elif len(locked_axes) == 1:
+            free_axes = [a for a in ['X', 'Y', 'Z'] if a not in locked_axes]
+            box2.label(text=f"   当前: {free_axes[0]}{free_axes[1]}平面距离", icon='MESH_PLANE')
+        elif len(locked_axes) == 2:
+            free_axis = [a for a in ['X', 'Y', 'Z'] if a not in locked_axes][0]
+            box2.label(text=f"   当前: 仅{free_axis}轴方向距离", icon='EMPTY_SINGLE_ARROW')
+        else:
+            box2.label(text="   不能锁定全部3个轴", icon='ERROR')
+        
+        # 偏移量设置
+        layout.separator()
+        box3 = layout.box()
+        box3.label(text="偏移量设置:", icon='ORIENTATION_GLOBAL')
+        row = box3.row()
+        row.prop(self, "center_offset_x", text="X")
+        row.prop(self, "center_offset_y", text="Y")
+        row.prop(self, "center_offset_z", text="Z")
+        layout.prop(self, "create_geometry")
+    
+    # ==================== 计算辅助方法 ====================
+    
+    def _get_locked_axes(self):
+        """获取锁定的轴列表"""
+        locked = []
+        if self.lock_x:
+            locked.append('X')
+        if self.lock_y:
+            locked.append('Y')
+        if self.lock_z:
+            locked.append('Z')
+        return locked
 
     def calc_distance(self, p1, p2):
+        """计算考虑轴锁定的距离"""
         dx = 0 if self.lock_x else (p2.x - p1.x)
         dy = 0 if self.lock_y else (p2.y - p1.y)
         dz = 0 if self.lock_z else (p2.z - p1.z)
         return math.sqrt(dx**2 + dy**2 + dz**2)
     
     def get_axis_lock_info(self):
-        locked_axes = []
-        if self.lock_x:
-            locked_axes.append('X')
-        if self.lock_y:
-            locked_axes.append('Y')
-        if self.lock_z:
-            locked_axes.append('Z')
+        """获取轴锁定信息描述"""
+        locked_axes = self._get_locked_axes()
         
         if not locked_axes:
             return "3D距离"
@@ -148,38 +266,55 @@ class OBJECT_OT_connect_origins(Operator):
             return "错误：不能锁定全部3个轴"
     
     def get_display_points(self, p1, p2):
+        """获取用于显示的点（考虑轴锁定）"""
         x = p1.x if self.lock_x else p2.x
         y = p1.y if self.lock_y else p2.y
         z = p1.z if self.lock_z else p2.z
         return p1.copy(), Vector((x, y, z))
     
+    def get_offset_vector(self):
+        """获取偏移向量"""
+        return Vector((self.center_offset_x, self.center_offset_y, self.center_offset_z))
+    
+    # ==================== 圆拟合方法 ====================
+    
     def fit_circle_3d(self, points):
-        """在3D空间中拟合圆"""
-        import numpy as np
+        """
+        在3D空间中拟合圆
+        
+        返回: (center, radius, fit_error) 或 (None, None, None)
+        """
+        if not check_numpy():
+            return None, None, "numpy 未安装"
+        
+        try:
+            import numpy as np
+        except ImportError:
+            return None, None, "numpy 导入失败"
         
         if len(points) < 3:
             return None, None, None
         
-        pts = np.array([[p.x, p.y, p.z] for p in points])
-        centroid = pts.mean(axis=0)
-        pts_centered = pts - centroid
-        
-        cov = np.cov(pts_centered.T)
-        eigenvalues, eigenvectors = np.linalg.eigh(cov)
-        
-        normal = eigenvectors[:, 0]
-        u = eigenvectors[:, 1]
-        v = eigenvectors[:, 2]
-        
-        pts_2d = np.column_stack([
-            pts_centered.dot(u),
-            pts_centered.dot(v)
-        ])
-        
-        A = np.column_stack([2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))])
-        b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
-        
         try:
+            pts = np.array([[p.x, p.y, p.z] for p in points])
+            centroid = pts.mean(axis=0)
+            pts_centered = pts - centroid
+            
+            cov = np.cov(pts_centered.T)
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            
+            normal = eigenvectors[:, 0]
+            u = eigenvectors[:, 1]
+            v = eigenvectors[:, 2]
+            
+            pts_2d = np.column_stack([
+                pts_centered.dot(u),
+                pts_centered.dot(v)
+            ])
+            
+            A = np.column_stack([2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))])
+            b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
+            
             result, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
             a, b_val, c = result
             
@@ -199,646 +334,591 @@ class OBJECT_OT_connect_origins(Operator):
         except (np.linalg.LinAlgError, ValueError, RuntimeError):
             return None, None, None
 
+    # ==================== 主执行入口 ====================
+
     def execute(self, context):
         if context.mode == 'EDIT_MESH':
             return self.execute_edit_mode(context)
         else:
             return self.execute_object_mode(context)
     
+    # ==================== 编辑模式执行 ====================
+    
     def execute_edit_mode(self, context):
-        """编辑模式执行"""
+        """编辑模式执行入口"""
         edit_objects = [obj for obj in context.objects_in_mode if obj.type == 'MESH']
         
         if not edit_objects:
             self.report({'WARNING'}, "没有处于编辑模式的网格对象")
             return {'CANCELLED'}
         
-        tool_settings = context.tool_settings
-        select_mode = tool_settings.mesh_select_mode
+        select_mode = context.tool_settings.mesh_select_mode
         
-        points_world = []
+        # 根据测量模式分发到不同的方法
+        if self.measure_mode == MeasureMode.EDGE_LENGTH:
+            return self._measure_edge_length(context, edit_objects)
+        
+        elif self.measure_mode == MeasureMode.CENTER_DISTANCE:
+            return self._measure_center_distance(context, edit_objects, select_mode)
+        
+        elif self.measure_mode == MeasureMode.ANGLE_EDGES:
+            return self._measure_angle_edges(context, edit_objects)
+        
+        elif self.measure_mode == MeasureMode.ANGLE_FACES:
+            return self._measure_angle_faces(context, edit_objects, select_mode)
+        
+        elif self.measure_mode == MeasureMode.ANGLE_VERTS:
+            return self._measure_angle_verts(context, edit_objects)
+        
+        elif self.measure_mode == MeasureMode.RADIUS:
+            return self._measure_radius(context, edit_objects, select_mode)
+        
+        # 默认情况
+        self.report({'WARNING'}, "不支持的测量模式")
+        return {'CANCELLED'}
+    
+    def _measure_edge_length(self, context, edit_objects):
+        """边长测量"""
+        edge_data_list = []
         
         for obj in edit_objects:
-            bm = bmesh.from_edit_mesh(obj.data)
-            bm.verts.ensure_lookup_table()
-            bm.edges.ensure_lookup_table()
-            bm.faces.ensure_lookup_table()
-            
-            if select_mode[2]:
-                for f in bm.faces:
-                    if f.select:
-                        center_local = f.calc_center_median()
-                        center_world = obj.matrix_world @ center_local
-                        points_world.append(center_world)
-            elif select_mode[1]:
-                for e in bm.edges:
-                    if e.select:
-                        v1_world = obj.matrix_world @ e.verts[0].co
-                        v2_world = obj.matrix_world @ e.verts[1].co
-                        mid_world = (v1_world + v2_world) / 2
-                        points_world.append(mid_world)
-            else:
-                for v in bm.verts:
-                    if v.select:
-                        world_co = obj.matrix_world @ v.co
-                        points_world.append(world_co)
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.edges.ensure_lookup_table()
+            for edge_idx, e in enumerate(bm_read.edges):
+                if e.select:
+                    edge_data_list.append((obj.name, edge_idx, e.verts[0].index, e.verts[1].index))
         
-        # 边长测量模式
-        if self.measure_mode == 'EDGE_LENGTH':
-            edge_data_list = []
-            
-            for obj in edit_objects:
-                bm_read = bmesh.from_edit_mesh(obj.data)
-                bm_read.edges.ensure_lookup_table()
-                for edge_idx, e in enumerate(bm_read.edges):
-                    if e.select:
-                        edge_data_list.append((obj.name, edge_idx, e.verts[0].index, e.verts[1].index))
-            
-            if len(edge_data_list) == 0:
-                self.report({'WARNING'}, "边长测量模式需要在边选择模式下选择至少1条边")
-                return {'CANCELLED'}
-            
-            register_annotation("__edge_length__", "edge_length", {
-                'edge_data': edge_data_list,
-            })
-            
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            total_length = 0.0
-            edge_count = len(edge_data_list)
-            for i, (obj_name, edge_idx, v1_idx, v2_idx) in enumerate(edge_data_list):
-                obj = bpy.data.objects.get(obj_name)
-                if obj and obj.type == 'MESH':
-                    mesh = obj.data
-                    if v1_idx < len(mesh.vertices) and v2_idx < len(mesh.vertices):
-                        v1_world = obj.matrix_world @ mesh.vertices[v1_idx].co
-                        v2_world = obj.matrix_world @ mesh.vertices[v2_idx].co
-                        length = (v2_world - v1_world).length
-                        total_length += length
-            
-            if edge_count == 1:
-                self.report({'INFO'}, f"边长: {total_length:.6f} m（标注跟随物体）")
-            else:
-                self.report({'INFO'}, f"选中 {edge_count} 条边，总长度: {total_length:.6f} m（标注跟随物体）")
-            return {'FINISHED'}
-        
-        # 通用距离模式
-        if self.measure_mode == 'CENTER_DISTANCE':
-            centers = []
-            
-            if select_mode[2]:
-                for obj in edit_objects:
-                    bm_read = bmesh.from_edit_mesh(obj.data)
-                    bm_read.faces.ensure_lookup_table()
-                    for f in bm_read.faces:
-                        if f.select:
-                            face_center = f.calc_center_median()
-                            world_center = obj.matrix_world @ face_center
-                            centers.append(world_center.copy())
-            elif select_mode[1]:
-                for obj in edit_objects:
-                    bm_read = bmesh.from_edit_mesh(obj.data)
-                    bm_read.edges.ensure_lookup_table()
-                    for e in bm_read.edges:
-                        if e.select:
-                            v1_world = obj.matrix_world @ e.verts[0].co
-                            v2_world = obj.matrix_world @ e.verts[1].co
-                            edge_center = (v1_world + v2_world) / 2
-                            centers.append(edge_center.copy())
-            else:
-                for obj in edit_objects:
-                    bm_read = bmesh.from_edit_mesh(obj.data)
-                    bm_read.verts.ensure_lookup_table()
-                    for v in bm_read.verts:
-                        if v.select:
-                            world_co = obj.matrix_world @ v.co
-                            centers.append(world_co.copy())
-            
-            if len(centers) < 2:
-                mode_name = "面" if select_mode[2] else ("边" if select_mode[1] else "顶点")
-                self.report({'WARNING'}, f"通用距离模式需要选择至少2个{mode_name}")
-                return {'CANCELLED'}
-            
-            center1, center2 = centers[0], centers[1]
-            
-            offset = Vector((self.center_offset_x, self.center_offset_y, self.center_offset_z))
-            center2_offset = center2 + offset
-            
-            if self.lock_x and self.lock_y and self.lock_z:
-                self.report({'ERROR'}, "不能同时锁定全部3个轴")
-                return {'CANCELLED'}
-            
-            display_p1, display_p2 = self.get_display_points(center1, center2_offset)
-            distance = self.calc_distance(center1, center2_offset)
-            axis_info = self.get_axis_lock_info()
-            
-            if self.create_geometry:
-                bpy.ops.object.mode_set(mode='OBJECT')
-                
-                obj_name = get_unique_measure_name("测量_通用距离")
-                mesh = bpy.data.meshes.new(obj_name)
-                measure_obj = bpy.data.objects.new(obj_name, mesh)
-                context.collection.objects.link(measure_obj)
-                
-                bm = bmesh.new()
-                v1 = bm.verts.new(display_p1)
-                v2 = bm.verts.new(display_p2)
-                bm.verts.ensure_lookup_table()
-                bm.edges.new((v1, v2))
-                bm.to_mesh(mesh)
-                bm.free()
-                
-                register_annotation(obj_name, "distance", {
-                    'measure_mode': 'CENTER_DISTANCE',
-                    'edge_indices': [0],
-                    'distance': distance,
-                })
-                
-                bpy.ops.object.select_all(action='DESELECT')
-                measure_obj.select_set(True)
-                context.view_layer.objects.active = measure_obj
-            else:
-                register_annotation("__center_distance_temp__", "distance_temp", {
-                    'points': [display_p1.copy(), display_p2.copy()],
-                    'measure_mode': 'CENTER_DISTANCE',
-                    'distance': distance,
-                })
-            
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            self.report({'INFO'}, f"距离: {distance:.6f} m（{axis_info}）")
-            return {'FINISHED'}
-        
-        # 两边夹角模式
-        if self.measure_mode == 'ANGLE_EDGES':
-            edge_refs = []
-            
-            for obj in edit_objects:
-                bm_read = bmesh.from_edit_mesh(obj.data)
-                bm_read.edges.ensure_lookup_table()
-                for e in bm_read.edges:
-                    if e.select:
-                        edge_refs.append((obj.name, e.verts[0].index, e.verts[1].index))
-            
-            if len(edge_refs) != 2:
-                self.report({'WARNING'}, f"两边夹角模式需要选择恰好2条边，当前选中了{len(edge_refs)}条")
-                return {'CANCELLED'}
-            
-            register_annotation("__edge_angle__", "edge_angle", {
-                'edge_refs': edge_refs,
-            })
-            
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            def get_edge_direction(obj_name, v1_idx, v2_idx):
-                obj = bpy.data.objects.get(obj_name)
-                if obj and obj.type == 'MESH':
-                    mesh = obj.data
-                    if v1_idx < len(mesh.vertices) and v2_idx < len(mesh.vertices):
-                        v1_world = obj.matrix_world @ mesh.vertices[v1_idx].co
-                        v2_world = obj.matrix_world @ mesh.vertices[v2_idx].co
-                        return (v2_world - v1_world).normalized(), (v1_world + v2_world) / 2
-                return None, None
-            
-            dir1, mid1 = get_edge_direction(*edge_refs[0])
-            dir2, mid2 = get_edge_direction(*edge_refs[1])
-            
-            if dir1 and dir2:
-                dot_product = dir1.dot(dir2)
-                dot_product = max(-1.0, min(1.0, dot_product))
-                angle_rad = math.acos(abs(dot_product))
-                angle_deg = math.degrees(angle_rad)
-                supplement_angle = 180.0 - angle_deg
-                
-                self.report({'INFO'}, f"两边夹角: {angle_deg:.2f}°（补角: {supplement_angle:.2f}°）")
-            
-            return {'FINISHED'}
-        
-        # 两面夹角模式
-        if self.measure_mode == 'ANGLE_FACES':
-            if not select_mode[2]:
-                self.report({'WARNING'}, "两面夹角模式需要在面选择模式下使用")
-                return {'CANCELLED'}
-            
-            face_normals = []
-            face_centers = []
-            for obj in edit_objects:
-                bm_read = bmesh.from_edit_mesh(obj.data)
-                bm_read.faces.ensure_lookup_table()
-                for f in bm_read.faces:
-                    if f.select:
-                        center_local = f.calc_center_median()
-                        center_world = obj.matrix_world @ center_local
-                        normal_world = (obj.matrix_world.to_3x3() @ f.normal).normalized()
-                        face_normals.append(normal_world.copy())
-                        face_centers.append(center_world.copy())
-            
-            if len(face_normals) != 2:
-                self.report({'WARNING'}, f"两面夹角模式需要选择恰好2个面，当前选中了{len(face_normals)}个")
-                return {'CANCELLED'}
-            
-            n1 = face_normals[0]
-            n2 = face_normals[1]
-            
-            dot_product = n1.dot(n2)
-            dot_product = max(-1.0, min(1.0, dot_product))
-            angle_rad = math.acos(dot_product)
-            angle_deg = math.degrees(angle_rad)
-            bend_angle = 180.0 - angle_deg
-            
-            if self.create_geometry:
-                bpy.ops.object.mode_set(mode='OBJECT')
-                
-                obj_name = get_unique_measure_name("测量_夹角")
-                mesh = bpy.data.meshes.new(obj_name)
-                measure_obj = bpy.data.objects.new(obj_name, mesh)
-                context.collection.objects.link(measure_obj)
-                
-                bm = bmesh.new()
-                v1 = bm.verts.new(face_centers[0])
-                v2 = bm.verts.new(face_centers[1])
-                bm.verts.ensure_lookup_table()
-                bm.edges.new((v1, v2))
-                bm.to_mesh(mesh)
-                bm.free()
-                
-                register_annotation(obj_name, "angle", {
-                    'edge_indices': [0],
-                    'angle': angle_deg,
-                    'bend': bend_angle,
-                })
-                
-                bpy.ops.object.select_all(action='DESELECT')
-                measure_obj.select_set(True)
-                context.view_layer.objects.active = measure_obj
-            else:
-                register_annotation("__angle_temp__", "angle_temp", {
-                    'center': (face_centers[0] + face_centers[1]) / 2,
-                    'angle': angle_deg,
-                    'bend': bend_angle,
-                })
-            
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            self.report({'INFO'}, f"法线夹角: {angle_deg:.2f}°，弯曲角度: {bend_angle:.2f}°")
-            return {'FINISHED'}
-        
-        # 顶点角度模式
-        if self.measure_mode == 'ANGLE_VERTS':
-            vert_refs = []
-            
-            for obj in edit_objects:
-                bm_read = bmesh.from_edit_mesh(obj.data)
-                bm_read.verts.ensure_lookup_table()
-                for v in bm_read.verts:
-                    if v.select:
-                        vert_refs.append((obj.name, v.index))
-            
-            if len(vert_refs) < 2:
-                self.report({'WARNING'}, f"顶点角度模式需要至少选择2个顶点，当前选中了{len(vert_refs)}个")
-                return {'CANCELLED'}
-            
-            if len(vert_refs) == 2:
-                register_annotation("__line_angles__", "line_angles", {
-                    'vert_refs': vert_refs,
-                })
-            else:
-                register_annotation("__vertex_angles__", "vertex_angles", {
-                    'vert_refs': vert_refs,
-                })
-            
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            self.report({'INFO'}, f"已创建顶点角度标注（{len(vert_refs)}个顶点）")
-            return {'FINISHED'}
-        
-        # 半径模式
-        if self.measure_mode == 'RADIUS':
-            center_points = []
-            all_points = []
-            
-            for obj in edit_objects:
-                bm_read = bmesh.from_edit_mesh(obj.data)
-                bm_read.verts.ensure_lookup_table()
-                bm_read.edges.ensure_lookup_table()
-                bm_read.faces.ensure_lookup_table()
-                
-                if select_mode[2]:
-                    for f in bm_read.faces:
-                        if f.select:
-                            center_local = f.calc_center_median()
-                            center_world = obj.matrix_world @ center_local
-                            center_points.append(center_world.copy())
-                            for v in f.verts:
-                                world_co = obj.matrix_world @ v.co
-                                all_points.append(world_co.copy())
-                elif select_mode[1]:
-                    for e in bm_read.edges:
-                        if e.select:
-                            v1_world = obj.matrix_world @ e.verts[0].co
-                            v2_world = obj.matrix_world @ e.verts[1].co
-                            mid_world = (v1_world + v2_world) / 2
-                            center_points.append(mid_world.copy())
-                            all_points.append(v1_world.copy())
-                            all_points.append(v2_world.copy())
-                else:
-                    for v in bm_read.verts:
-                        if v.select:
-                            world_co = obj.matrix_world @ v.co
-                            center_points.append(world_co.copy())
-                            all_points.append(world_co.copy())
-            
-            if len(center_points) == 1 and select_mode[2] and len(all_points) >= 3:
-                unique_points = []
-                for p in all_points:
-                    is_duplicate = False
-                    for up in unique_points:
-                        if (p - up).length < 0.0001:
-                            is_duplicate = True
-                            break
-                    if not is_duplicate:
-                        unique_points.append(p)
-                
-                if len(unique_points) >= 3:
-                    center, radius, fit_error = self.fit_circle_3d(unique_points)
-                    
-                    if center is None:
-                        self.report({'WARNING'}, "无法拟合圆，点可能共线")
-                        return {'CANCELLED'}
-                    
-                    diameter = radius * 2
-                    
-                    if self.create_geometry:
-                        bpy.ops.object.mode_set(mode='OBJECT')
-                        
-                        obj_name = get_unique_measure_name("测量_半径")
-                        mesh = bpy.data.meshes.new(obj_name)
-                        measure_obj = bpy.data.objects.new(obj_name, mesh)
-                        context.collection.objects.link(measure_obj)
-                        
-                        bm = bmesh.new()
-                        v_center = bm.verts.new(center)
-                        nearest_point = min(unique_points, key=lambda p: abs((p - center).length - radius))
-                        v_nearest = bm.verts.new(nearest_point)
-                        bm.verts.ensure_lookup_table()
-                        bm.edges.new((v_center, v_nearest))
-                        bm.to_mesh(mesh)
-                        bm.free()
-                        
-                        register_annotation(obj_name, "radius", {
-                            'is_circle': True,
-                            'center_vert_idx': 0,
-                            'fit_error': fit_error,
-                        })
-                        
-                        bpy.ops.object.select_all(action='DESELECT')
-                        measure_obj.select_set(True)
-                        context.view_layer.objects.active = measure_obj
-                    else:
-                        register_annotation("__radius_temp__", "radius_temp", {
-                            'center': center.copy(),
-                            'radius': radius,
-                            'diameter': diameter,
-                            'is_circle': True,
-                            'fit_error': fit_error,
-                        })
-                    
-                    ensure_draw_handler_enabled()
-                    
-                    for area in context.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            area.tag_redraw()
-                    
-                    self.report({'INFO'}, f"半径: {radius:.6f} m，直径: {diameter:.6f} m（拟合误差: {fit_error:.4f}）")
-                    return {'FINISHED'}
-            
-            if len(center_points) < 2:
-                mode_name = "面" if select_mode[2] else ("边" if select_mode[1] else "顶点")
-                self.report({'WARNING'}, f"半径/直径模式需要至少选中2个{mode_name}，或选中1个圆形面")
-                return {'CANCELLED'}
-            
-            p1, p2 = center_points[0], center_points[1]
-            diameter = (p2 - p1).length
-            radius = diameter / 2
-            center = (p1 + p2) / 2
-            
-            if self.create_geometry:
-                bpy.ops.object.mode_set(mode='OBJECT')
-                
-                obj_name = get_unique_measure_name("测量_半距")
-                mesh = bpy.data.meshes.new(obj_name)
-                measure_obj = bpy.data.objects.new(obj_name, mesh)
-                context.collection.objects.link(measure_obj)
-                
-                bm = bmesh.new()
-                v1 = bm.verts.new(p1)
-                v2 = bm.verts.new(p2)
-                v_center = bm.verts.new(center)
-                bm.verts.ensure_lookup_table()
-                bm.edges.new((v_center, v1))
-                bm.edges.new((v_center, v2))
-                bm.to_mesh(mesh)
-                bm.free()
-                
-                register_annotation(obj_name, "radius", {
-                    'is_circle': False,
-                    'center_vert_idx': 2,
-                })
-                
-                bpy.ops.object.select_all(action='DESELECT')
-                measure_obj.select_set(True)
-                context.view_layer.objects.active = measure_obj
-            else:
-                register_annotation("__radius_temp__", "radius_temp", {
-                    'center': center.copy(),
-                    'radius': radius,
-                    'diameter': diameter,
-                    'is_circle': False,
-                })
-            
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            self.report({'INFO'}, f"半距: {radius:.6f} m，全距: {diameter:.6f} m")
-            return {'FINISHED'}
-        
-        if len(points_world) < 2:
-            mode_name = "面" if select_mode[2] else ("边" if select_mode[1] else "顶点")
-            self.report({'WARNING'}, f"请至少选中2个{mode_name}")
+        if len(edge_data_list) == 0:
+            self.report({'WARNING'}, "边长测量模式需要在边选择模式下选择至少1条边")
             return {'CANCELLED'}
+        
+        register_annotation("__edge_length__", AnnotationType.EDGE_LENGTH, {
+            'edge_data': edge_data_list,
+        })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        # 计算总长度
+        total_length = 0.0
+        for obj_name, edge_idx, v1_idx, v2_idx in edge_data_list:
+            obj = bpy.data.objects.get(obj_name)
+            if obj and obj.type == 'MESH':
+                mesh = obj.data
+                if v1_idx < len(mesh.vertices) and v2_idx < len(mesh.vertices):
+                    v1_world = obj.matrix_world @ mesh.vertices[v1_idx].co
+                    v2_world = obj.matrix_world @ mesh.vertices[v2_idx].co
+                    total_length += (v2_world - v1_world).length
+        
+        edge_count = len(edge_data_list)
+        if edge_count == 1:
+            self.report({'INFO'}, f"边长: {total_length:.6f} m（标注跟随物体）")
+        else:
+            self.report({'INFO'}, f"选中 {edge_count} 条边，总长度: {total_length:.6f} m（标注跟随物体）")
         
         return {'FINISHED'}
     
-    def execute_object_mode(self, context):
-        """物体模式执行"""
-        selected = [obj for obj in context.selected_objects]
-        if len(selected) < 2:
-            self.report({'WARNING'}, "请至少选中2个对象")
+    def _measure_center_distance(self, context, edit_objects, select_mode):
+        """通用距离测量"""
+        centers = get_selected_centers(edit_objects, select_mode)
+        
+        if len(centers) < 2:
+            mode_name = get_mode_name(select_mode)
+            self.report({'WARNING'}, f"通用距离模式需要选择至少2个{mode_name}")
             return {'CANCELLED'}
         
-        origins = []
-        for obj in selected:
-            origins.append(obj.matrix_world.translation.copy())
+        center1, center2 = centers[0], centers[1]
+        center2_offset = center2 + self.get_offset_vector()
         
-        mesh = bpy.data.meshes.new("原点连线")
-        obj = bpy.data.objects.new("原点连线", mesh)
-        context.collection.objects.link(obj)
+        if self.lock_x and self.lock_y and self.lock_z:
+            self.report({'ERROR'}, "不能同时锁定全部3个轴")
+            return {'CANCELLED'}
         
-        bm = bmesh.new()
-        verts = []
+        display_p1, display_p2 = self.get_display_points(center1, center2_offset)
+        distance = self.calc_distance(center1, center2_offset)
+        axis_info = self.get_axis_lock_info()
         
-        if self.measure_mode == 'XYZ_SPLIT' and len(origins) == 2:
-            p1 = origins[0]
-            p2 = origins[1]
+        if self.create_geometry:
+            bpy.ops.object.mode_set(mode='OBJECT')
             
-            dx = abs(p2.x - p1.x)
-            dy = abs(p2.y - p1.y)
-            dz = abs(p2.z - p1.z)
-            threshold = 0.0001
+            measure_obj = create_measure_object(
+                context,
+                f"{Config.MEASURE_OBJECT_PREFIX}通用距离",
+                [display_p1, display_p2],
+                [(0, 1)]
+            )
             
-            if dx < threshold and dy < threshold and dz < threshold:
-                bpy.data.objects.remove(obj, do_unlink=True)
-                bpy.data.meshes.remove(mesh)
-                self.report({'WARNING'}, "两点的XYZ坐标完全相等，无法测量距离")
-                return {'CANCELLED'}
-            
-            path_points = [p1.copy()]
-            current = p1.copy()
-            
-            if dx > threshold:
-                current = Vector((p2.x, current.y, current.z))
-                path_points.append(current.copy())
-            
-            if dy > threshold:
-                current = Vector((current.x, p2.y, current.z))
-                path_points.append(current.copy())
-            
-            if dz > threshold:
-                current = Vector((current.x, current.y, p2.z))
-                path_points.append(current.copy())
-            
-            for pt in path_points:
-                v = bm.verts.new(pt)
-                verts.append(v)
-            
-            origins = path_points
-        elif self.measure_mode == 'CENTER_DISTANCE':
-            if len(origins) != 2:
-                bpy.data.objects.remove(obj, do_unlink=True)
-                bpy.data.meshes.remove(mesh)
-                self.report({'WARNING'}, "通用距离模式需要选中2个对象")
-                return {'CANCELLED'}
-            
-            if self.lock_x and self.lock_y and self.lock_z:
-                bpy.data.objects.remove(obj, do_unlink=True)
-                bpy.data.meshes.remove(mesh)
-                self.report({'ERROR'}, "不能同时锁定全部3个轴")
-                return {'CANCELLED'}
-            
-            p1, p2 = origins[0], origins[1]
-            offset = Vector((self.center_offset_x, self.center_offset_y, self.center_offset_z))
-            p2_offset = p2 + offset
-            
-            display_p1, display_p2 = self.get_display_points(p1, p2_offset)
-            distance = self.calc_distance(p1, p2_offset)
-            axis_info = self.get_axis_lock_info()
-            
-            v1 = bm.verts.new(display_p1)
-            v2 = bm.verts.new(display_p2)
-            verts = [v1, v2]
-            bm.verts.ensure_lookup_table()
-            bm.edges.new((v1, v2))
-            bm.to_mesh(mesh)
-            bm.free()
-            
-            base_name = "测量_通用距离"
-            obj.name = get_unique_measure_name(base_name)
-            mesh.name = obj.name
-            
-            for o in selected:
-                o.select_set(False)
-            obj.select_set(True)
-            context.view_layer.objects.active = obj
-            
-            register_annotation(obj.name, "distance", {
-                'measure_mode': 'CENTER_DISTANCE',
+            register_annotation(measure_obj.name, AnnotationType.DISTANCE, {
+                'measure_mode': MeasureMode.CENTER_DISTANCE,
                 'edge_indices': [0],
                 'distance': distance,
             })
             
-            ensure_draw_handler_enabled()
-            
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-            
-            self.report({'INFO'}, f"距离: {distance:.6f} m（{axis_info}）")
-            return {'FINISHED'}
+            bpy.ops.object.select_all(action='DESELECT')
+            measure_obj.select_set(True)
+            context.view_layer.objects.active = measure_obj
         else:
-            for origin in origins:
-                v = bm.verts.new(origin)
-                verts.append(v)
+            register_annotation("__center_distance_temp__", AnnotationType.DISTANCE_TEMP, {
+                'points': [display_p1.copy(), display_p2.copy()],
+                'measure_mode': MeasureMode.CENTER_DISTANCE,
+                'distance': distance,
+            })
         
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"距离: {distance:.6f} m（{axis_info}）")
+        return {'FINISHED'}
+    
+    def _measure_angle_edges(self, context, edit_objects):
+        """两边夹角测量"""
+        edge_refs = []
+        
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.edges.ensure_lookup_table()
+            for e in bm_read.edges:
+                if e.select:
+                    edge_refs.append((obj.name, e.verts[0].index, e.verts[1].index))
+        
+        if len(edge_refs) != 2:
+            self.report({'WARNING'}, f"两边夹角模式需要选择恰好2条边，当前选中了{len(edge_refs)}条")
+            return {'CANCELLED'}
+        
+        register_annotation("__edge_angle__", AnnotationType.EDGE_ANGLE, {
+            'edge_refs': edge_refs,
+        })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        # 计算并显示角度
+        def get_edge_direction(obj_name, v1_idx, v2_idx):
+            obj = bpy.data.objects.get(obj_name)
+            if obj and obj.type == 'MESH':
+                mesh = obj.data
+                if v1_idx < len(mesh.vertices) and v2_idx < len(mesh.vertices):
+                    v1_world = obj.matrix_world @ mesh.vertices[v1_idx].co
+                    v2_world = obj.matrix_world @ mesh.vertices[v2_idx].co
+                    return (v2_world - v1_world).normalized()
+            return None
+        
+        dir1 = get_edge_direction(*edge_refs[0])
+        dir2 = get_edge_direction(*edge_refs[1])
+        
+        if dir1 and dir2:
+            dot_product = max(-1.0, min(1.0, dir1.dot(dir2)))
+            angle_rad = math.acos(abs(dot_product))
+            angle_deg = math.degrees(angle_rad)
+            supplement_angle = 180.0 - angle_deg
+            
+            self.report({'INFO'}, f"两边夹角: {angle_deg:.2f}°（补角: {supplement_angle:.2f}°）")
+        
+        return {'FINISHED'}
+    
+    def _measure_angle_faces(self, context, edit_objects, select_mode):
+        """两面夹角测量"""
+        if not select_mode[2]:
+            self.report({'WARNING'}, "两面夹角模式需要在面选择模式下使用")
+            return {'CANCELLED'}
+        
+        face_normals = []
+        face_centers = []
+        
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.faces.ensure_lookup_table()
+            for f in bm_read.faces:
+                if f.select:
+                    center_local = f.calc_center_median()
+                    center_world = obj.matrix_world @ center_local
+                    normal_world = (obj.matrix_world.to_3x3() @ f.normal).normalized()
+                    face_normals.append(normal_world.copy())
+                    face_centers.append(center_world.copy())
+        
+        if len(face_normals) != 2:
+            self.report({'WARNING'}, f"两面夹角模式需要选择恰好2个面，当前选中了{len(face_normals)}个")
+            return {'CANCELLED'}
+        
+        n1, n2 = face_normals[0], face_normals[1]
+        
+        dot_product = max(-1.0, min(1.0, n1.dot(n2)))
+        angle_rad = math.acos(dot_product)
+        angle_deg = math.degrees(angle_rad)
+        bend_angle = 180.0 - angle_deg
+        
+        if self.create_geometry:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            measure_obj = create_measure_object(
+                context,
+                f"{Config.MEASURE_OBJECT_PREFIX}夹角",
+                [face_centers[0], face_centers[1]],
+                [(0, 1)]
+            )
+            
+            register_annotation(measure_obj.name, AnnotationType.ANGLE, {
+                'edge_indices': [0],
+                'angle': angle_deg,
+                'bend': bend_angle,
+            })
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            measure_obj.select_set(True)
+            context.view_layer.objects.active = measure_obj
+        else:
+            register_annotation("__angle_temp__", AnnotationType.ANGLE_TEMP, {
+                'center': (face_centers[0] + face_centers[1]) / 2,
+                'angle': angle_deg,
+                'bend': bend_angle,
+            })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"法线夹角: {angle_deg:.2f}°，弯曲角度: {bend_angle:.2f}°")
+        return {'FINISHED'}
+    
+    def _measure_angle_verts(self, context, edit_objects):
+        """顶点角度测量"""
+        vert_refs = []
+        
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.verts.ensure_lookup_table()
+            for v in bm_read.verts:
+                if v.select:
+                    vert_refs.append((obj.name, v.index))
+        
+        if len(vert_refs) < 2:
+            self.report({'WARNING'}, f"顶点角度模式需要至少选择2个顶点，当前选中了{len(vert_refs)}个")
+            return {'CANCELLED'}
+        
+        if len(vert_refs) == 2:
+            register_annotation("__line_angles__", AnnotationType.LINE_ANGLES, {
+                'vert_refs': vert_refs,
+            })
+        else:
+            register_annotation("__vertex_angles__", AnnotationType.VERTEX_ANGLES, {
+                'vert_refs': vert_refs,
+            })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"已创建顶点角度标注（{len(vert_refs)}个顶点）")
+        return {'FINISHED'}
+    
+    def _measure_radius(self, context, edit_objects, select_mode):
+        """半径/直径测量"""
+        center_points = []
+        all_points = []
+        
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.verts.ensure_lookup_table()
+            bm_read.edges.ensure_lookup_table()
+            bm_read.faces.ensure_lookup_table()
+            
+            if select_mode[2]:  # 面模式
+                for f in bm_read.faces:
+                    if f.select:
+                        center_local = f.calc_center_median()
+                        center_world = obj.matrix_world @ center_local
+                        center_points.append(center_world.copy())
+                        for v in f.verts:
+                            world_co = obj.matrix_world @ v.co
+                            all_points.append(world_co.copy())
+            elif select_mode[1]:  # 边模式
+                for e in bm_read.edges:
+                    if e.select:
+                        v1_world = obj.matrix_world @ e.verts[0].co
+                        v2_world = obj.matrix_world @ e.verts[1].co
+                        mid_world = (v1_world + v2_world) / 2
+                        center_points.append(mid_world.copy())
+                        all_points.append(v1_world.copy())
+                        all_points.append(v2_world.copy())
+            else:  # 顶点模式
+                for v in bm_read.verts:
+                    if v.select:
+                        world_co = obj.matrix_world @ v.co
+                        center_points.append(world_co.copy())
+                        all_points.append(world_co.copy())
+        
+        # 尝试圆拟合（单个面且有足够顶点）
+        if len(center_points) == 1 and select_mode[2] and len(all_points) >= 3:
+            return self._measure_radius_circle_fit(context, all_points)
+        
+        # 两点距离的半距/全距
+        if len(center_points) < 2:
+            mode_name = get_mode_name(select_mode)
+            self.report({'WARNING'}, f"半径/直径模式需要至少选中2个{mode_name}，或选中1个圆形面")
+            return {'CANCELLED'}
+        
+        return self._measure_radius_two_points(context, center_points[0], center_points[1])
+    
+    def _measure_radius_circle_fit(self, context, all_points):
+        """圆拟合测量半径"""
+        # 去重
+        unique_points = []
+        for p in all_points:
+            is_duplicate = False
+            for up in unique_points:
+                if (p - up).length < Config.COORDINATE_EPSILON:
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                unique_points.append(p)
+        
+        if len(unique_points) < 3:
+            self.report({'WARNING'}, "去重后点数不足3个，无法拟合圆")
+            return {'CANCELLED'}
+        
+        center, radius, fit_error = self.fit_circle_3d(unique_points)
+        
+        if center is None:
+            if isinstance(fit_error, str):
+                self.report({'ERROR'}, f"圆拟合失败: {fit_error}。请安装 numpy: pip install numpy")
+            else:
+                self.report({'WARNING'}, "无法拟合圆，点可能共线")
+            return {'CANCELLED'}
+        
+        diameter = radius * 2
+        
+        if self.create_geometry:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            nearest_point = min(unique_points, key=lambda p: abs((p - center).length - radius))
+            
+            measure_obj = create_measure_object(
+                context,
+                f"{Config.MEASURE_OBJECT_PREFIX}半径",
+                [center, nearest_point],
+                [(0, 1)]
+            )
+            
+            register_annotation(measure_obj.name, AnnotationType.RADIUS, {
+                'is_circle': True,
+                'center_vert_idx': 0,
+                'fit_error': fit_error,
+            })
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            measure_obj.select_set(True)
+            context.view_layer.objects.active = measure_obj
+        else:
+            register_annotation("__radius_temp__", AnnotationType.RADIUS_TEMP, {
+                'center': center.copy(),
+                'radius': radius,
+                'diameter': diameter,
+                'is_circle': True,
+                'fit_error': fit_error,
+            })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"半径: {radius:.6f} m，直径: {diameter:.6f} m（拟合误差: {fit_error:.4f}）")
+        return {'FINISHED'}
+    
+    def _measure_radius_two_points(self, context, p1, p2):
+        """两点半距/全距测量"""
+        diameter = (p2 - p1).length
+        radius = diameter / 2
+        center = (p1 + p2) / 2
+        
+        if self.create_geometry:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            measure_obj = create_measure_object(
+                context,
+                f"{Config.MEASURE_OBJECT_PREFIX}半距",
+                [p1, p2, center],
+                [(2, 0), (2, 1)]  # center -> p1, center -> p2
+            )
+            
+            register_annotation(measure_obj.name, AnnotationType.RADIUS, {
+                'is_circle': False,
+                'center_vert_idx': 2,
+            })
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            measure_obj.select_set(True)
+            context.view_layer.objects.active = measure_obj
+        else:
+            register_annotation("__radius_temp__", AnnotationType.RADIUS_TEMP, {
+                'center': center.copy(),
+                'radius': radius,
+                'diameter': diameter,
+                'is_circle': False,
+            })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"半距: {radius:.6f} m，全距: {diameter:.6f} m")
+        return {'FINISHED'}
+    
+    # ==================== 物体模式执行 ====================
+    
+    def execute_object_mode(self, context):
+        """物体模式执行"""
+        selected = list(context.selected_objects)
+        if len(selected) < 2:
+            self.report({'WARNING'}, "请至少选中2个对象")
+            return {'CANCELLED'}
+        
+        origins = [obj.matrix_world.translation.copy() for obj in selected]
+        
+        # 通用距离模式
+        if self.measure_mode == MeasureMode.CENTER_DISTANCE:
+            return self._object_mode_center_distance(context, selected, origins)
+        
+        # XYZ 分轴测量
+        if self.measure_mode == MeasureMode.XYZ_SPLIT and len(origins) == 2:
+            return self._object_mode_xyz_split(context, selected, origins)
+        
+        # 默认：连接所有原点
+        return self._object_mode_connect_origins(context, selected, origins)
+    
+    def _object_mode_center_distance(self, context, selected, origins):
+        """物体模式 - 通用距离测量"""
+        if len(origins) != 2:
+            self.report({'WARNING'}, "通用距离模式需要选中2个对象")
+            return {'CANCELLED'}
+        
+        if self.lock_x and self.lock_y and self.lock_z:
+            self.report({'ERROR'}, "不能同时锁定全部3个轴")
+            return {'CANCELLED'}
+        
+        p1, p2 = origins[0], origins[1]
+        p2_offset = p2 + self.get_offset_vector()
+        
+        display_p1, display_p2 = self.get_display_points(p1, p2_offset)
+        distance = self.calc_distance(p1, p2_offset)
+        axis_info = self.get_axis_lock_info()
+        
+        measure_obj = create_measure_object(
+            context,
+            f"{Config.MEASURE_OBJECT_PREFIX}通用距离",
+            [display_p1, display_p2],
+            [(0, 1)]
+        )
+        
+        for o in selected:
+            o.select_set(False)
+        measure_obj.select_set(True)
+        context.view_layer.objects.active = measure_obj
+        
+        register_annotation(measure_obj.name, AnnotationType.DISTANCE, {
+            'measure_mode': MeasureMode.CENTER_DISTANCE,
+            'edge_indices': [0],
+            'distance': distance,
+        })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"距离: {distance:.6f} m（{axis_info}）")
+        return {'FINISHED'}
+    
+    def _object_mode_xyz_split(self, context, selected, origins):
+        """物体模式 - XYZ分轴测量"""
+        p1, p2 = origins[0], origins[1]
+        
+        dx = abs(p2.x - p1.x)
+        dy = abs(p2.y - p1.y)
+        dz = abs(p2.z - p1.z)
+        threshold = Config.COORDINATE_EPSILON
+        
+        if dx < threshold and dy < threshold and dz < threshold:
+            self.report({'WARNING'}, "两点的XYZ坐标完全相等，无法测量距离")
+            return {'CANCELLED'}
+        
+        # 构建路径点
+        path_points = [p1.copy()]
+        current = p1.copy()
+        
+        if dx > threshold:
+            current = Vector((p2.x, current.y, current.z))
+            path_points.append(current.copy())
+        
+        if dy > threshold:
+            current = Vector((current.x, p2.y, current.z))
+            path_points.append(current.copy())
+        
+        if dz > threshold:
+            current = Vector((current.x, current.y, p2.z))
+            path_points.append(current.copy())
+        
+        # 构建边
+        edges = [(i, i + 1) for i in range(len(path_points) - 1)]
+        
+        measure_obj = create_measure_object(
+            context,
+            f"{Config.MEASURE_OBJECT_PREFIX}分轴",
+            path_points,
+            edges
+        )
+        
+        for o in selected:
+            o.select_set(False)
+        measure_obj.select_set(True)
+        context.view_layer.objects.active = measure_obj
+        
+        # 计算总距离
+        total_distance = 0.0
+        for i in range(len(path_points) - 1):
+            total_distance += self.calc_distance(path_points[i], path_points[i + 1])
+        
+        register_annotation(measure_obj.name, AnnotationType.DISTANCE, {
+            'measure_mode': MeasureMode.XYZ_SPLIT,
+            'edge_indices': list(range(len(edges))),
+        })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        self.report({'INFO'}, f"已连接 {len(path_points)} 个原点，总长度: {total_distance:.6f} m（{len(edges)} 段）")
+        return {'FINISHED'}
+    
+    def _object_mode_connect_origins(self, context, selected, origins):
+        """物体模式 - 连接所有原点"""
+        edges = [(i, i + 1) for i in range(len(origins) - 1)]
+        
+        measure_obj = create_measure_object(
+            context,
+            f"{Config.MEASURE_OBJECT_PREFIX}距离",
+            origins,
+            edges
+        )
+        
+        for o in selected:
+            o.select_set(False)
+        measure_obj.select_set(True)
+        context.view_layer.objects.active = measure_obj
+        
+        # 计算距离
         distances = []
         total_distance = 0.0
-        edge_count = len(verts) - 1
-        for i in range(edge_count):
-            bm.edges.new((verts[i], verts[i + 1]))
+        for i in range(len(origins) - 1):
             dist = self.calc_distance(origins[i], origins[i + 1])
             distances.append(dist)
             total_distance += dist
         
-        bm.to_mesh(mesh)
-        bm.free()
-        
-        measure_types_name = {'XYZ_SPLIT': '分轴', 'CENTER_DISTANCE': '距离'}
-        base_name = f"测量_{measure_types_name.get(self.measure_mode, '距离')}"
-        obj.name = get_unique_measure_name(base_name)
-        mesh.name = obj.name
-        
-        for o in selected:
-            o.select_set(False)
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
-        
-        register_annotation(obj.name, "distance", {
+        register_annotation(measure_obj.name, AnnotationType.DISTANCE, {
             'measure_mode': self.measure_mode,
-            'edge_indices': list(range(edge_count)),
+            'edge_indices': list(range(len(edges))),
         })
         
         ensure_draw_handler_enabled()
-        
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
+        refresh_3d_views(context)
         
         if len(distances) == 1:
             self.report({'INFO'}, f"已连接 {len(origins)} 个原点，距离: {total_distance:.6f} m")
         else:
             self.report({'INFO'}, f"已连接 {len(origins)} 个原点，总长度: {total_distance:.6f} m（{len(distances)} 段）")
+        
         return {'FINISHED'}
 
 

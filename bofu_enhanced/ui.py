@@ -6,7 +6,9 @@ bofu_enhanced/ui.py
 """
 
 import bpy
+import bmesh
 from bpy.types import Menu, Panel, Operator
+from mathutils import Vector
 
 from .utils import format_value
 
@@ -28,23 +30,50 @@ class VIEW3D_MT_PIE_bofu_tools(Menu):
         # 右 (East) - 名称批量替换
         pie.operator("object.batch_rename_plus", text="名称批量替换", icon='SORTALPHA')
         
-        # 下 (South) - 批量材质
+        # 下 (South) - 批量应用材质
         pie.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
         
         # 上 (North) - 批量导出OBJ
         pie.operator("export.batch_obj_with_origin", text="批量导出OBJ", icon='EXPORT')
         
-        # 左上 (Northwest) - 复制位置
-        pie.operator("transform.copy_location", text="复制位置", icon='ORIENTATION_GLOBAL')
+        # 左上 (Northwest) - 复制位置（根据模式动态显示）
+        if context.mode == 'EDIT_MESH':
+            select_mode = context.tool_settings.mesh_select_mode
+            if select_mode[2]:
+                copy_text = "复制面位置"
+            elif select_mode[1]:
+                copy_text = "复制边位置"
+            else:
+                copy_text = "复制顶点位置"
+        else:
+            copy_text = "复制位置"
+        pie.operator("transform.copy_location", text=copy_text, icon='ORIENTATION_GLOBAL')
         
-        # 右上 (Northeast) - 标注管理子菜单
-        pie.menu("VIEW3D_MT_annotation_manage", text="标注管理", icon='FONT_DATA')
+        # 右上 (Northeast) - 标注管理（弹出独立菜单，不打断饼图）
+        pie.operator("bofu.popup_annotation_menu", text="标注管理", icon='FONT_DATA')
         
         # 左下 (Southwest) - 智能测量
         pie.operator("object.connect_origins", text="智能测量", icon='DRIVER_DISTANCE')
         
-        # 右下 (Southeast) - 对齐工具子菜单
-        pie.menu("VIEW3D_MT_align_tools", text="对齐工具", icon='ALIGN_CENTER')
+        # 右下 (Southeast) - 对齐工具（弹出独立菜单，不打断饼图）
+        pie.operator("bofu.popup_align_menu", text="对齐工具", icon='ALIGN_CENTER')
+
+
+class VIEW3D_MT_misc_tools(Menu):
+    """杂项工具子菜单"""
+    bl_idname = "VIEW3D_MT_misc_tools"
+    bl_label = "杂项"
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # 材质同步开关
+        if hasattr(context.scene, 'misc_settings'):
+            settings = context.scene.misc_settings
+            icon = 'CHECKBOX_HLT' if settings.material_sync_enabled else 'CHECKBOX_DEHLT'
+            layout.prop(settings, "material_sync_enabled", icon=icon)
+            if settings.material_sync_enabled:
+                layout.label(text="  颜色/金属度/糙度自动同步", icon='INFO')
 
 
 class VIEW3D_MT_annotation_manage(Menu):
@@ -77,6 +106,10 @@ class VIEW3D_MT_annotation_manage(Menu):
         layout.operator("bofu.clear_all_annotations", text="清除所有标注", icon='TRASH')
         layout.separator()
         layout.operator("bofu.annotation_info", text="标注信息", icon='INFO')
+        
+        # 杂项设置
+        layout.separator()
+        layout.menu("VIEW3D_MT_misc_tools", text="杂项设置", icon='THREE_DOTS')
 
 
 class VIEW3D_MT_align_tools(Menu):
@@ -127,6 +160,39 @@ class BOFU_OT_call_pie_menu(Operator):
         return {'FINISHED'}
 
 
+class BOFU_OT_popup_annotation_menu(Operator):
+    """弹出标注管理菜单"""
+    bl_idname = "bofu.popup_annotation_menu"
+    bl_label = "标注管理"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_annotation_manage")
+        return {'FINISHED'}
+
+
+class BOFU_OT_popup_align_menu(Operator):
+    """弹出对齐工具菜单"""
+    bl_idname = "bofu.popup_align_menu"
+    bl_label = "对齐工具"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_align_tools")
+        return {'FINISHED'}
+
+
+class BOFU_OT_popup_misc_menu(Operator):
+    """弹出杂项工具菜单"""
+    bl_idname = "bofu.popup_misc_menu"
+    bl_label = "杂项"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_misc_tools")
+        return {'FINISHED'}
+
+
 # ==================== 面板定义 ====================
 
 class TRANSFORM_PT_precise_panel(Panel):
@@ -148,6 +214,84 @@ class TRANSFORM_PT_precise_panel(Panel):
             layout.label(text="未选中对象", icon='INFO')
             return
         
+        # 编辑模式：显示顶点坐标
+        if context.mode == 'EDIT_MESH' and obj.type == 'MESH':
+            self.draw_edit_mode(context, layout, obj)
+            return
+        
+        # 对象模式：显示对象变换
+        self.draw_object_mode(context, layout, obj)
+    
+    def draw_edit_mode(self, context, layout, obj):
+        """编辑模式下绘制顶点坐标"""
+        col = layout.column(align=True)
+        col.scale_x = 1.2
+        
+        bm = bmesh.from_edit_mesh(obj.data)
+        mw = obj.matrix_world
+        
+        selected_verts = [v for v in bm.verts if v.select]
+        
+        if not selected_verts:
+            col.label(text="未选中顶点", icon='INFO')
+            return
+        
+        # 复制位置按钮
+        row = col.row(align=True)
+        row.operator("transform.copy_location", text="复制顶点位置", icon='ORIENTATION_GLOBAL', emboss=True)
+        col.separator()
+        
+        if len(selected_verts) == 1:
+            # 单个顶点：显示世界坐标（可编辑）
+            vert = selected_verts[0]
+            world_co = mw @ vert.co
+            
+            col.label(text=f"顶点 {vert.index} (世界坐标):", icon='VERTEXSEL')
+            sub = col.column(align=True)
+            for i, axis in enumerate(['X', 'Y', 'Z']):
+                value = world_co[i]
+                sub.label(text=f"{axis}  {format_value(value)} m")
+            
+            col.separator()
+            col.label(text="局部坐标:", icon='ORIENTATION_LOCAL')
+            sub = col.column(align=True)
+            for i, axis in enumerate(['X', 'Y', 'Z']):
+                value = vert.co[i]
+                sub.label(text=f"{axis}  {format_value(value)} m")
+        else:
+            # 多个顶点：显示中心点和边界
+            col.label(text=f"选中 {len(selected_verts)} 个顶点", icon='VERTEXSEL')
+            col.separator()
+            
+            # 计算中心点
+            center = Vector((0, 0, 0))
+            for v in selected_verts:
+                center += mw @ v.co
+            center /= len(selected_verts)
+            
+            col.label(text="中心点 (世界坐标):", icon='PIVOT_MEDIAN')
+            sub = col.column(align=True)
+            for i, axis in enumerate(['X', 'Y', 'Z']):
+                sub.label(text=f"{axis}  {format_value(center[i])} m")
+            
+            # 计算边界范围
+            col.separator()
+            min_co = Vector((float('inf'), float('inf'), float('inf')))
+            max_co = Vector((float('-inf'), float('-inf'), float('-inf')))
+            for v in selected_verts:
+                world_co = mw @ v.co
+                for i in range(3):
+                    min_co[i] = min(min_co[i], world_co[i])
+                    max_co[i] = max(max_co[i], world_co[i])
+            
+            size = max_co - min_co
+            col.label(text="选区尺寸:", icon='ARROW_LEFTRIGHT')
+            sub = col.column(align=True)
+            for i, axis in enumerate(['X', 'Y', 'Z']):
+                sub.label(text=f"{axis}  {format_value(size[i])} m")
+    
+    def draw_object_mode(self, context, layout, obj):
+        """对象模式下绘制对象变换"""
         col = layout.column(align=True)
         col.scale_x = 1.2
         
@@ -240,8 +384,12 @@ class TRANSFORM_PT_precise_panel(Panel):
 
 classes = (
     VIEW3D_MT_PIE_bofu_tools,
+    VIEW3D_MT_misc_tools,
     VIEW3D_MT_annotation_manage,
     VIEW3D_MT_align_tools,
     BOFU_OT_call_pie_menu,
+    BOFU_OT_popup_annotation_menu,
+    BOFU_OT_popup_align_menu,
+    BOFU_OT_popup_misc_menu,
     TRANSFORM_PT_precise_panel,
 )

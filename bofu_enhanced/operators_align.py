@@ -11,6 +11,7 @@ from bpy.types import Operator
 from bpy.props import EnumProperty, BoolProperty, FloatProperty
 from mathutils import Vector
 
+from .config import Config
 from .utils import AlignmentHelper
 
 
@@ -396,7 +397,7 @@ class OBJECT_OT_align_to_active_direction(Operator):
                 self.report({'ERROR'}, "活动面法线模式需要在网格编辑模式下使用")
                 return {'CANCELLED'}
             target_dir = self._get_active_face_normal(active)
-            if target_dir is None or target_dir.length < 1e-8:
+            if target_dir is None or target_dir.length < Config.VECTOR_LENGTH_EPSILON:
                 self.report({'ERROR'}, "未找到活动面，请选中一个面")
                 return {'CANCELLED'}
             
@@ -417,7 +418,7 @@ class OBJECT_OT_align_to_active_direction(Operator):
                 targets = [obj for obj in context.selected_objects if obj != active]
         else:
             target_dir = (active.matrix_world.to_quaternion() @ self._axis_vector(self.active_axis)).normalized()
-            if target_dir.length < 1e-8:
+            if target_dir.length < Config.VECTOR_LENGTH_EPSILON:
                 self.report({'ERROR'}, "活动对象参考轴方向无效")
                 return {'CANCELLED'}
             targets = [obj for obj in context.selected_objects if obj != active]
@@ -429,7 +430,7 @@ class OBJECT_OT_align_to_active_direction(Operator):
         aligned_count = 0
         for obj in targets:
             source_dir = (obj.matrix_world.to_quaternion() @ self._axis_vector(self.target_axis)).normalized()
-            if source_dir.length < 1e-8:
+            if source_dir.length < Config.VECTOR_LENGTH_EPSILON:
                 continue
             rot_q = source_dir.rotation_difference(target_dir)
             self._apply_world_rotation(obj, rot_q)

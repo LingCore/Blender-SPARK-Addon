@@ -6,6 +6,7 @@ bofu_enhanced/annotation.py
 - AnnotationKeyGenerator: 标注唯一性键生成器
 - AnnotationManager: 标注管理器
 - AnnotationCleaner: 标注清理器
+- AnnotationStorage: 标注持久化存储
 - 绘制回调函数
 - 标注相关操作符
 """
@@ -14,13 +15,13 @@ import bpy
 import bmesh
 import math
 import time
-import gpu
-import blf
-from gpu_extras.batch import batch_for_shader
+import json
 from bpy.types import Operator
 from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
+from .config import Config, AnnotationType
+from .render_utils import LabelRenderer, get_font_size, get_bg_color, ShaderCache
 from .utils import get_vertex_world_coord_realtime, get_edge_world_coords_realtime
 
 
@@ -45,7 +46,7 @@ class AnnotationKeyGenerator:
     用于生成标注的唯一标识键，确保对相同元素的重复测量能够被正确识别和覆盖。
     """
     
-    PRECISION = 4
+    PRECISION = Config.COORDINATE_PRECISION
     
     @classmethod
     def round_coord(cls, value):
@@ -110,31 +111,31 @@ class AnnotationKeyGenerator:
         """根据标注类型和数据生成唯一键"""
         key = None
         
-        if annotation_type == 'edge_length':
+        if annotation_type == AnnotationType.EDGE_LENGTH:
             if 'edge_data' in data:
                 key = cls.normalize_edge_data(data['edge_data'])
             elif 'edges' in data:
                 key = cls.normalize_edges_with_coords(data['edges'])
         
-        elif annotation_type == 'edge_angle':
+        elif annotation_type == AnnotationType.EDGE_ANGLE:
             if 'edge_refs' in data:
                 key = cls.normalize_edge_refs(data['edge_refs'])
         
-        elif annotation_type == 'line_angles':
+        elif annotation_type == AnnotationType.LINE_ANGLES:
             if 'vert_refs' in data:
                 key = cls.normalize_vertex_refs(data['vert_refs'])
         
-        elif annotation_type == 'vertex_angles':
+        elif annotation_type == AnnotationType.VERTEX_ANGLES:
             if 'vert_refs' in data:
                 key = cls.normalize_vertex_refs(data['vert_refs'])
         
-        elif annotation_type in ('angle', 'angle_temp'):
+        elif annotation_type in (AnnotationType.ANGLE, AnnotationType.ANGLE_TEMP):
             if 'center' in data:
                 key = cls.vector_to_tuple(data['center'])
             elif 'edge_indices' in data and 'angle' in data:
                 key = ('angle', cls.round_coord(data['angle']))
         
-        elif annotation_type in ('radius', 'radius_temp'):
+        elif annotation_type in (AnnotationType.RADIUS, AnnotationType.RADIUS_TEMP):
             if 'center' in data:
                 center = data['center']
                 radius = data.get('radius', 0)
@@ -143,7 +144,7 @@ class AnnotationKeyGenerator:
                 is_circle = data.get('is_circle', False)
                 key = ('radius_bound', is_circle)
         
-        elif annotation_type in ('distance', 'distance_temp'):
+        elif annotation_type in (AnnotationType.DISTANCE, AnnotationType.DISTANCE_TEMP):
             if 'points' in data:
                 key = cls.normalize_points(data['points'])
             elif 'measure_mode' in data and 'edge_indices' in data:
@@ -160,13 +161,18 @@ class AnnotationKeyGenerator:
 class AnnotationManager:
     """标注管理器"""
     
-    MAX_ANNOTATIONS = 500
-    MAX_TEMP_ANNOTATIONS = 100
+    MAX_ANNOTATIONS = Config.MAX_ANNOTATIONS
+    MAX_TEMP_ANNOTATIONS = Config.MAX_TEMP_ANNOTATIONS
     
     @staticmethod
     def get_registry():
         global _annotation_registry
         return _annotation_registry
+    
+    @staticmethod
+    def set_registry(registry):
+        global _annotation_registry
+        _annotation_registry = registry
     
     @staticmethod
     def find_duplicate(annotation_type, data, exclude_name=None):
@@ -182,7 +188,7 @@ class AnnotationManager:
                 continue
             
             existing_type = existing_data.get('type')
-            if not AnnotationManager._types_compatible(annotation_type, existing_type):
+            if not AnnotationType.are_compatible(annotation_type, existing_type):
                 continue
             
             existing_key = AnnotationKeyGenerator.generate_key(existing_type, existing_data)
@@ -190,23 +196,6 @@ class AnnotationManager:
                 duplicates.append(name)
         
         return duplicates
-    
-    @staticmethod
-    def _types_compatible(type1, type2):
-        if type1 == type2:
-            return True
-        
-        compatible_pairs = [
-            ('angle', 'angle_temp'),
-            ('radius', 'radius_temp'),
-            ('distance', 'distance_temp'),
-        ]
-        
-        for pair in compatible_pairs:
-            if type1 in pair and type2 in pair:
-                return True
-        
-        return False
     
     @staticmethod
     def remove_duplicates(annotation_type, data):
@@ -308,6 +297,109 @@ class AnnotationManager:
         return len(to_remove)
 
 
+# ==================== 标注持久化存储 ====================
+
+class AnnotationStorage:
+    """标注数据持久化存储"""
+    
+    STORAGE_KEY = "bofu_annotations_data"
+    
+    @staticmethod
+    def serialize_vector(vec):
+        """将 Vector 序列化为列表"""
+        if vec is None:
+            return None
+        return [vec.x, vec.y, vec.z]
+    
+    @staticmethod
+    def deserialize_vector(data):
+        """将列表反序列化为 Vector"""
+        if data is None:
+            return None
+        return Vector(data)
+    
+    @staticmethod
+    def serialize_annotation(data):
+        """序列化单个标注数据"""
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, Vector):
+                result[key] = {'__vector__': True, 'data': AnnotationStorage.serialize_vector(value)}
+            elif key == 'points' and isinstance(value, list):
+                result[key] = [{'__vector__': True, 'data': AnnotationStorage.serialize_vector(v)} for v in value]
+            else:
+                result[key] = value
+        return result
+    
+    @staticmethod
+    def deserialize_annotation(data):
+        """反序列化单个标注数据"""
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, dict) and value.get('__vector__'):
+                result[key] = AnnotationStorage.deserialize_vector(value['data'])
+            elif key == 'points' and isinstance(value, list):
+                result[key] = [
+                    AnnotationStorage.deserialize_vector(v['data']) if isinstance(v, dict) and v.get('__vector__') else v
+                    for v in value
+                ]
+            else:
+                result[key] = value
+        return result
+    
+    @staticmethod
+    def save_to_scene(scene):
+        """保存标注数据到场景"""
+        global _annotation_registry
+        
+        try:
+            # 只保存绑定对象的标注（非临时标注）
+            data_to_save = {}
+            for name, data in _annotation_registry.items():
+                if not name.startswith("__"):
+                    data_to_save[name] = AnnotationStorage.serialize_annotation(data)
+            
+            scene[AnnotationStorage.STORAGE_KEY] = json.dumps(data_to_save)
+            print(f"[标注系统] 已保存 {len(data_to_save)} 个标注到场景")
+            return True
+        except Exception as e:
+            print(f"⚠️ 保存标注数据失败: {e}")
+            return False
+    
+    @staticmethod
+    def load_from_scene(scene):
+        """从场景加载标注数据"""
+        global _annotation_registry
+        
+        try:
+            if AnnotationStorage.STORAGE_KEY not in scene:
+                return 0
+            
+            raw_data = scene[AnnotationStorage.STORAGE_KEY]
+            loaded_data = json.loads(raw_data)
+            
+            loaded_count = 0
+            for name, data in loaded_data.items():
+                # 只加载对象仍存在的标注
+                if name in bpy.data.objects or name.startswith("测量_"):
+                    deserialized = AnnotationStorage.deserialize_annotation(data)
+                    _annotation_registry[name] = deserialized
+                    loaded_count += 1
+            
+            print(f"[标注系统] 已从场景加载 {loaded_count} 个标注")
+            return loaded_count
+        except Exception as e:
+            print(f"⚠️ 加载标注数据失败: {e}")
+            return 0
+    
+    @staticmethod
+    def clear_from_scene(scene):
+        """清除场景中的标注数据"""
+        if AnnotationStorage.STORAGE_KEY in scene:
+            del scene[AnnotationStorage.STORAGE_KEY]
+            print("[标注系统] 已清除场景中的标注数据")
+
+
 # ==================== 标注清理器 ====================
 
 class AnnotationCleaner:
@@ -387,7 +479,7 @@ class AnnotationCleaner:
             if name in obj_names_to_clear:
                 to_remove.append(name)
                 obj = bpy.data.objects.get(name)
-                if obj and name.startswith("测量_"):
+                if obj and name.startswith(Config.MEASURE_OBJECT_PREFIX):
                     measure_objects_to_delete.append(obj)
                 continue
             
@@ -585,6 +677,9 @@ def disable_draw_handler():
             print(f"⚠️ 移除绘制处理器失败: {e}")
         finally:
             _unified_draw_handler = None
+    
+    # 清除 Shader 缓存
+    ShaderCache.clear()
 
 
 # ==================== 统一绘制回调 ====================
@@ -600,7 +695,7 @@ def unified_draw_callback():
         unified_draw_callback._last_cleanup_time = 0
     
     current_time = time.time()
-    if current_time - unified_draw_callback._last_cleanup_time > 5.0:
+    if current_time - unified_draw_callback._last_cleanup_time > Config.CLEANUP_INTERVAL:
         cleanup_deleted_objects()
         unified_draw_callback._last_cleanup_time = current_time
     
@@ -617,116 +712,57 @@ def unified_draw_callback():
         
         annotation_type = data.get('type', '')
         
-        if annotation_type == 'distance':
+        if annotation_type == AnnotationType.DISTANCE:
             draw_distance_annotation(obj_name, data, region, rv3d)
-        elif annotation_type == 'distance_temp':
+        elif annotation_type == AnnotationType.DISTANCE_TEMP:
             draw_distance_temp_annotation(data, region, rv3d)
-        elif annotation_type == 'angle':
+        elif annotation_type == AnnotationType.ANGLE:
             draw_angle_annotation(obj_name, data, region, rv3d)
-        elif annotation_type == 'angle_temp':
+        elif annotation_type == AnnotationType.ANGLE_TEMP:
             draw_angle_temp_annotation(data, region, rv3d)
-        elif annotation_type == 'edge_angle':
+        elif annotation_type == AnnotationType.EDGE_ANGLE:
             draw_edge_angle_annotation(data, region, rv3d)
-        elif annotation_type == 'edge_length':
+        elif annotation_type == AnnotationType.EDGE_LENGTH:
             draw_edge_length_annotation(data, region, rv3d)
-        elif annotation_type == 'vertex_angles':
+        elif annotation_type == AnnotationType.VERTEX_ANGLES:
             draw_vertex_angles_annotation(data, region, rv3d)
-        elif annotation_type == 'line_angles':
+        elif annotation_type == AnnotationType.LINE_ANGLES:
             draw_line_angles_annotation(data, region, rv3d)
-        elif annotation_type == 'radius':
+        elif annotation_type == AnnotationType.RADIUS:
             draw_radius_annotation(obj_name, data, region, rv3d)
-        elif annotation_type == 'radius_temp':
+        elif annotation_type == AnnotationType.RADIUS_TEMP:
             draw_radius_temp_annotation(data, region, rv3d)
 
 
-# ==================== 绘制辅助函数 ====================
+# ==================== 绘制辅助函数（使用 LabelRenderer）====================
 
-def draw_distance_label(font_id, screen_pos, distance):
+def draw_distance_label(screen_pos, distance):
     """绘制单个距离标签"""
-    text = f"{distance:.6f} m"
-    text_width, text_height = blf.dimensions(font_id, text)
-    
-    padding = 10
-    bg_x = screen_pos[0] - text_width / 2 - padding
-    bg_y = screen_pos[1] - text_height / 2 - padding
-    bg_width = text_width + padding * 2
-    bg_height = text_height + padding * 2
-    
-    vertices = (
-        (bg_x, bg_y),
-        (bg_x + bg_width, bg_y),
-        (bg_x + bg_width, bg_y + bg_height),
-        (bg_x, bg_y + bg_height),
+    text = Config.DISTANCE_FORMAT.format(distance)
+    LabelRenderer.draw_single_line_label(
+        screen_pos, text,
+        text_color=Config.Colors.TEXT_PRIMARY,
+        bg_color=get_bg_color('distance'),
+        font_size=get_font_size()
     )
-    indices = ((0, 1, 2), (2, 3, 0))
-    
-    gpu.state.blend_set('ALPHA')
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-    shader.bind()
-    shader.uniform_float("color", (0.2, 0.2, 0.2, 0.5))
-    batch.draw(shader)
-    gpu.state.blend_set('NONE')
-    
-    blf.position(font_id, screen_pos[0] - text_width / 2, screen_pos[1] - text_height / 2, 0)
-    blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-    blf.draw(font_id, text)
 
 
 def draw_angle_label(screen_pos, angle_deg, bend_angle):
-    """绘制角度标签"""
-    font_id = 0
-    blf.size(font_id, 28)
-    
-    text1 = f"法线夹角: {angle_deg:.2f}°"
-    text2 = f"弯曲角度: {bend_angle:.2f}°"
-    
-    text1_width, _ = blf.dimensions(font_id, text1)
-    text2_width, _ = blf.dimensions(font_id, text2)
-    
-    line_height = 35
-    line_spacing = 15
-    max_width = max(text1_width, text2_width)
-    total_height = line_height * 2 + line_spacing
-    
-    padding = 15
-    bg_x = screen_pos[0] - max_width / 2 - padding
-    bg_y = screen_pos[1] - total_height / 2 - padding
-    bg_width = max_width + padding * 2
-    bg_height = total_height + padding * 2
-    
-    vertices = (
-        (bg_x, bg_y),
-        (bg_x + bg_width, bg_y),
-        (bg_x + bg_width, bg_y + bg_height),
-        (bg_x, bg_y + bg_height),
+    """绘制角度标签（两行）"""
+    lines = [
+        f"法线夹角: {angle_deg:.2f}°",
+        f"弯曲角度: {bend_angle:.2f}°"
+    ]
+    colors = [Config.Colors.TEXT_PRIMARY, Config.Colors.TEXT_HIGHLIGHT]
+    LabelRenderer.draw_multi_line_label(
+        screen_pos, lines, colors,
+        bg_color=get_bg_color('angle'),
+        font_size=get_font_size()
     )
-    indices = ((0, 1, 2), (2, 3, 0))
-    
-    gpu.state.blend_set('ALPHA')
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-    shader.bind()
-    shader.uniform_float("color", (0.1, 0.3, 0.5, 0.5))
-    batch.draw(shader)
-    gpu.state.blend_set('NONE')
-    
-    y1 = screen_pos[1] + line_spacing / 2 + line_height / 2
-    blf.position(font_id, screen_pos[0] - text1_width / 2, y1, 0)
-    blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-    blf.draw(font_id, text1)
-    
-    y2 = screen_pos[1] - line_spacing / 2 - line_height / 2
-    blf.position(font_id, screen_pos[0] - text2_width / 2, y2, 0)
-    blf.color(font_id, 1.0, 0.9, 0.3, 1.0)
-    blf.draw(font_id, text2)
 
 
 def draw_radius_label(screen_pos, radius, diameter, is_circle):
     """绘制半径/直径标签"""
-    font_id = 0
-    blf.size(font_id, 28)
-    
     if is_circle:
         text1 = f"半径: {radius:.6f} m"
         text2 = f"直径: {diameter:.6f} m"
@@ -734,45 +770,27 @@ def draw_radius_label(screen_pos, radius, diameter, is_circle):
         text1 = f"半距: {radius:.6f} m"
         text2 = f"全距: {diameter:.6f} m"
     
-    text1_width, _ = blf.dimensions(font_id, text1)
-    text2_width, _ = blf.dimensions(font_id, text2)
-    
-    line_height = 35
-    line_spacing = 15
-    max_width = max(text1_width, text2_width)
-    total_height = line_height * 2 + line_spacing
-    
-    padding = 15
-    bg_x = screen_pos[0] - max_width / 2 - padding
-    bg_y = screen_pos[1] - total_height / 2 - padding
-    bg_width = max_width + padding * 2
-    bg_height = total_height + padding * 2
-    
-    vertices = (
-        (bg_x, bg_y),
-        (bg_x + bg_width, bg_y),
-        (bg_x + bg_width, bg_y + bg_height),
-        (bg_x, bg_y + bg_height),
+    lines = [text1, text2]
+    colors = [Config.Colors.TEXT_PRIMARY, Config.Colors.TEXT_HIGHLIGHT]
+    LabelRenderer.draw_multi_line_label(
+        screen_pos, lines, colors,
+        bg_color=get_bg_color('radius'),
+        font_size=get_font_size()
     )
-    indices = ((0, 1, 2), (2, 3, 0))
-    
-    gpu.state.blend_set('ALPHA')
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-    shader.bind()
-    shader.uniform_float("color", (0.2, 0.5, 0.3, 0.5))
-    batch.draw(shader)
-    gpu.state.blend_set('NONE')
-    
-    y1 = screen_pos[1] + line_spacing / 2 + line_height / 2
-    blf.position(font_id, screen_pos[0] - text1_width / 2, y1, 0)
-    blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-    blf.draw(font_id, text1)
-    
-    y2 = screen_pos[1] - line_spacing / 2 - line_height / 2
-    blf.position(font_id, screen_pos[0] - text2_width / 2, y2, 0)
-    blf.color(font_id, 1.0, 0.9, 0.3, 1.0)
-    blf.draw(font_id, text2)
+
+
+def draw_edge_angle_label(screen_pos, angle_deg, supplement):
+    """绘制边夹角标签"""
+    lines = [
+        f"夹角: {angle_deg:.2f}°",
+        f"补角: {supplement:.2f}°"
+    ]
+    colors = [Config.Colors.TEXT_PRIMARY, Config.Colors.TEXT_HIGHLIGHT]
+    LabelRenderer.draw_multi_line_label(
+        screen_pos, lines, colors,
+        bg_color=get_bg_color('edge_angle'),
+        font_size=get_font_size()
+    )
 
 
 # ==================== 具体绘制函数 ====================
@@ -787,9 +805,6 @@ def draw_distance_annotation(obj_name, data, region, rv3d):
     edge_indices = data.get('edge_indices', [])
     measure_mode = data.get('measure_mode', 'CENTER_DISTANCE')
     
-    font_id = 0
-    blf.size(font_id, 28)
-    
     if measure_mode == 'CENTER_DISTANCE':
         stored_distance = data.get('distance')
         if stored_distance is not None and len(mesh.edges) > 0:
@@ -802,7 +817,7 @@ def draw_distance_annotation(obj_name, data, region, rv3d):
             
             screen_pos = location_3d_to_region_2d(region, rv3d, mid_point)
             if screen_pos:
-                draw_distance_label(font_id, screen_pos, stored_distance)
+                draw_distance_label(screen_pos, stored_distance)
         return
     
     for edge_idx in edge_indices:
@@ -824,7 +839,7 @@ def draw_distance_annotation(obj_name, data, region, rv3d):
         if screen_pos is None:
             continue
         
-        draw_distance_label(font_id, screen_pos, distance)
+        draw_distance_label(screen_pos, distance)
 
 
 def draw_distance_temp_annotation(data, region, rv3d):
@@ -833,9 +848,6 @@ def draw_distance_temp_annotation(data, region, rv3d):
     if len(points) < 2:
         return
     
-    font_id = 0
-    blf.size(font_id, 28)
-    
     stored_distance = data.get('distance')
     if stored_distance is not None:
         p1 = points[0]
@@ -843,7 +855,7 @@ def draw_distance_temp_annotation(data, region, rv3d):
         mid_point = (p1 + p2) / 2
         screen_pos = location_3d_to_region_2d(region, rv3d, mid_point)
         if screen_pos:
-            draw_distance_label(font_id, screen_pos, stored_distance)
+            draw_distance_label(screen_pos, stored_distance)
         return
     
     for i in range(len(points) - 1):
@@ -854,7 +866,7 @@ def draw_distance_temp_annotation(data, region, rv3d):
         
         screen_pos = location_3d_to_region_2d(region, rv3d, mid_point)
         if screen_pos:
-            draw_distance_label(font_id, screen_pos, distance)
+            draw_distance_label(screen_pos, distance)
 
 
 def draw_angle_annotation(obj_name, data, region, rv3d):
@@ -934,51 +946,7 @@ def draw_edge_angle_annotation(data, region, rv3d):
     if screen_pos is None:
         return
     
-    font_id = 0
-    blf.size(font_id, 28)
-    
-    text1 = f"夹角: {angle_deg:.2f}°"
-    text2 = f"补角: {supplement:.2f}°"
-    
-    text1_width, _ = blf.dimensions(font_id, text1)
-    text2_width, _ = blf.dimensions(font_id, text2)
-    
-    line_height = 35
-    line_spacing = 15
-    max_width = max(text1_width, text2_width)
-    total_height = line_height * 2 + line_spacing
-    
-    padding = 15
-    bg_x = screen_pos[0] - max_width / 2 - padding
-    bg_y = screen_pos[1] - total_height / 2 - padding
-    bg_width = max_width + padding * 2
-    bg_height = total_height + padding * 2
-    
-    vertices = (
-        (bg_x, bg_y),
-        (bg_x + bg_width, bg_y),
-        (bg_x + bg_width, bg_y + bg_height),
-        (bg_x, bg_y + bg_height),
-    )
-    indices = ((0, 1, 2), (2, 3, 0))
-    
-    gpu.state.blend_set('ALPHA')
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-    shader.bind()
-    shader.uniform_float("color", (0.5, 0.3, 0.1, 0.5))
-    batch.draw(shader)
-    gpu.state.blend_set('NONE')
-    
-    y1 = screen_pos[1] + line_spacing / 2 + line_height / 2
-    blf.position(font_id, screen_pos[0] - text1_width / 2, y1, 0)
-    blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-    blf.draw(font_id, text1)
-    
-    y2 = screen_pos[1] - line_spacing / 2 - line_height / 2
-    blf.position(font_id, screen_pos[0] - text2_width / 2, y2, 0)
-    blf.color(font_id, 1.0, 0.9, 0.3, 1.0)
-    blf.draw(font_id, text2)
+    draw_edge_angle_label(screen_pos, angle_deg, supplement)
 
 
 def draw_edge_length_annotation(data, region, rv3d):
@@ -987,9 +955,6 @@ def draw_edge_length_annotation(data, region, rv3d):
     
     if not edge_data:
         return
-    
-    font_id = 0
-    blf.size(font_id, 26)
     
     for obj_name, edge_idx, v1_idx, v2_idx in edge_data:
         v1_world, v2_world = get_edge_world_coords_realtime(obj_name, v1_idx, v2_idx)
@@ -1003,35 +968,13 @@ def draw_edge_length_annotation(data, region, rv3d):
         if screen_pos is None:
             continue
         
-        text = f"{length:.4f} m"
-        text_width, _ = blf.dimensions(font_id, text)
-        
-        padding = 10
-        line_height = 30
-        bg_x = screen_pos[0] - text_width / 2 - padding
-        bg_y = screen_pos[1] - line_height / 2 - padding
-        bg_width = text_width + padding * 2
-        bg_height = line_height + padding * 2
-        
-        vertices = (
-            (bg_x, bg_y),
-            (bg_x + bg_width, bg_y),
-            (bg_x + bg_width, bg_y + bg_height),
-            (bg_x, bg_y + bg_height),
+        text = Config.DISTANCE_FORMAT_SHORT.format(length)
+        LabelRenderer.draw_single_line_label(
+            screen_pos, text,
+            text_color=Config.Colors.TEXT_PRIMARY,
+            bg_color=get_bg_color('edge_length'),
+            font_size=Config.SMALL_FONT_SIZE
         )
-        indices = ((0, 1, 2), (2, 3, 0))
-        
-        gpu.state.blend_set('ALPHA')
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-        shader.bind()
-        shader.uniform_float("color", (0.1, 0.4, 0.5, 0.5))
-        batch.draw(shader)
-        gpu.state.blend_set('NONE')
-        
-        blf.position(font_id, screen_pos[0] - text_width / 2, screen_pos[1] - line_height / 4, 0)
-        blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
-        blf.draw(font_id, text)
 
 
 def draw_vertex_angles_annotation(data, region, rv3d):
@@ -1061,21 +1004,21 @@ def draw_vertex_angles_annotation(data, region, rv3d):
         v2 = points[2] - points[0]
         normal = v1.cross(v2)
         
-        if normal.length < 0.0001:
+        if normal.length < Config.COORDINATE_EPSILON:
             for i in range(len(points)):
                 for j in range(i+1, len(points)):
                     for k in range(j+1, len(points)):
                         v1 = points[j] - points[i]
                         v2 = points[k] - points[i]
                         normal = v1.cross(v2)
-                        if normal.length > 0.0001:
+                        if normal.length > Config.COORDINATE_EPSILON:
                             break
-                    if normal.length > 0.0001:
+                    if normal.length > Config.COORDINATE_EPSILON:
                         break
-                if normal.length > 0.0001:
+                if normal.length > Config.COORDINATE_EPSILON:
                     break
         
-        if normal.length < 0.0001:
+        if normal.length < Config.COORDINATE_EPSILON:
             return points, list(range(len(points)))
         
         normal = normal.normalized()
@@ -1120,9 +1063,6 @@ def draw_vertex_angles_annotation(data, region, rv3d):
         angle = calc_angle_at_vertex(p_prev, p_curr, p_next)
         angles.append(angle)
     
-    font_id = 0
-    blf.size(font_id, 24)
-    
     for i, (point, angle) in enumerate(zip(vertices_world, angles)):
         if angle is None:
             continue
@@ -1131,37 +1071,17 @@ def draw_vertex_angles_annotation(data, region, rv3d):
         if screen_pos is None:
             continue
         
-        screen_pos = (screen_pos[0] + 20, screen_pos[1] + 20)
+        # 偏移显示，避免遮挡顶点
+        offset_pos = (screen_pos[0] + 20, screen_pos[1] + 20)
         
         text = f"{i+1}: {angle:.2f}°"
-        text_width, _ = blf.dimensions(font_id, text)
-        
-        padding = 8
-        line_height = 28
-        bg_x = screen_pos[0] - padding
-        bg_y = screen_pos[1] - padding
-        bg_width = text_width + padding * 2
-        bg_height = line_height + padding * 2
-        
-        vertices = (
-            (bg_x, bg_y),
-            (bg_x + bg_width, bg_y),
-            (bg_x + bg_width, bg_y + bg_height),
-            (bg_x, bg_y + bg_height),
+        LabelRenderer.draw_single_line_label(
+            offset_pos, text,
+            text_color=Config.Colors.TEXT_ANGLE_YELLOW,
+            bg_color=get_bg_color('vertex_angle'),
+            font_size=Config.MINI_FONT_SIZE,
+            padding=Config.LABEL_PADDING_SMALL
         )
-        indices = ((0, 1, 2), (2, 3, 0))
-        
-        gpu.state.blend_set('ALPHA')
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-        shader.bind()
-        shader.uniform_float("color", (0.4, 0.2, 0.5, 0.5))
-        batch.draw(shader)
-        gpu.state.blend_set('NONE')
-        
-        blf.position(font_id, screen_pos[0], screen_pos[1], 0)
-        blf.color(font_id, 1.0, 1.0, 0.5, 1.0)
-        blf.draw(font_id, text)
 
 
 def draw_line_angles_annotation(data, region, rv3d):
@@ -1192,7 +1112,7 @@ def draw_line_angles_annotation(data, region, rv3d):
         angle_z = angle_with_axis(direction, z_axis)
         
         horizontal = Vector((direction.x, direction.y, 0))
-        if horizontal.length > 0.0001:
+        if horizontal.length > Config.COORDINATE_EPSILON:
             horizontal = horizontal.normalized()
             dot = direction.dot(horizontal)
             dot = max(-1.0, min(1.0, dot))
@@ -1213,61 +1133,27 @@ def draw_line_angles_annotation(data, region, rv3d):
     if screen_pos is None:
         return
     
-    font_id = 0
-    blf.size(font_id, 24)
-    
     lines = [
         f"X轴: {angle_x:.2f}°",
         f"Y轴: {angle_y:.2f}°",
         f"Z轴: {angle_z:.2f}°",
         f"水平: {angle_horizontal:.2f}°",
     ]
-    
-    max_width = 0
-    for line in lines:
-        w, _ = blf.dimensions(font_id, line)
-        max_width = max(max_width, w)
-    
-    line_height = 28
-    line_spacing = 5
-    total_height = line_height * len(lines) + line_spacing * (len(lines) - 1)
-    
-    padding = 12
-    bg_x = screen_pos[0] - max_width / 2 - padding
-    bg_y = screen_pos[1] - total_height / 2 - padding
-    bg_width = max_width + padding * 2
-    bg_height = total_height + padding * 2
-    
-    vertices = (
-        (bg_x, bg_y),
-        (bg_x + bg_width, bg_y),
-        (bg_x + bg_width, bg_y + bg_height),
-        (bg_x, bg_y + bg_height),
-    )
-    indices = ((0, 1, 2), (2, 3, 0))
-    
-    gpu.state.blend_set('ALPHA')
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-    shader.bind()
-    shader.uniform_float("color", (0.4, 0.2, 0.5, 0.5))
-    batch.draw(shader)
-    gpu.state.blend_set('NONE')
-    
-    y_start = screen_pos[1] + total_height / 2 - line_height / 2
     colors = [
-        (1.0, 0.5, 0.5, 1.0),
-        (0.5, 1.0, 0.5, 1.0),
-        (0.5, 0.5, 1.0, 1.0),
-        (1.0, 1.0, 0.5, 1.0),
+        Config.Colors.AXIS_X,
+        Config.Colors.AXIS_Y,
+        Config.Colors.AXIS_Z,
+        Config.Colors.AXIS_HORIZONTAL,
     ]
     
-    for i, (line, color) in enumerate(zip(lines, colors)):
-        y = y_start - i * (line_height + line_spacing)
-        w, _ = blf.dimensions(font_id, line)
-        blf.position(font_id, screen_pos[0] - w / 2, y, 0)
-        blf.color(font_id, *color)
-        blf.draw(font_id, line)
+    LabelRenderer.draw_multi_line_label(
+        screen_pos, lines, colors,
+        bg_color=get_bg_color('line_angle'),
+        font_size=Config.MINI_FONT_SIZE,
+        padding=12,
+        line_height=Config.LINE_HEIGHT_MINI,
+        line_spacing=Config.LINE_SPACING_SMALL
+    )
 
 
 def draw_radius_annotation(obj_name, data, region, rv3d):
@@ -1400,7 +1286,7 @@ class BOFU_OT_toggle_annotations(Operator):
     """显示/隐藏所有标注"""
     bl_idname = "bofu.toggle_annotations"
     bl_label = "显示/隐藏标注"
-    bl_options = {'REGISTER'}
+    bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
         visible = toggle_annotations_visibility()
@@ -1423,6 +1309,38 @@ class BOFU_OT_annotation_info(Operator):
         total = temp_count + bound_count
         
         self.report({'INFO'}, f"标注总数: {total}（临时: {temp_count}, 绑定对象: {bound_count}）")
+        return {'FINISHED'}
+
+
+class BOFU_OT_save_annotations(Operator):
+    """保存标注到场景"""
+    bl_idname = "bofu.save_annotations"
+    bl_label = "保存标注"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        if AnnotationStorage.save_to_scene(context.scene):
+            self.report({'INFO'}, "标注数据已保存")
+        else:
+            self.report({'WARNING'}, "保存标注数据失败")
+        return {'FINISHED'}
+
+
+class BOFU_OT_load_annotations(Operator):
+    """从场景加载标注"""
+    bl_idname = "bofu.load_annotations"
+    bl_label = "加载标注"
+    bl_options = {'REGISTER'}
+    
+    def execute(self, context):
+        count = AnnotationStorage.load_from_scene(context.scene)
+        ensure_draw_handler_enabled()
+        AnnotationCleaner.refresh_view(context)
+        
+        if count > 0:
+            self.report({'INFO'}, f"已加载 {count} 个标注")
+        else:
+            self.report({'INFO'}, "没有找到保存的标注数据")
         return {'FINISHED'}
 
 
@@ -1469,6 +1387,8 @@ classes = (
     BOFU_OT_clear_all_annotations,
     BOFU_OT_toggle_annotations,
     BOFU_OT_annotation_info,
+    BOFU_OT_save_annotations,
+    BOFU_OT_load_annotations,
     OBJECT_OT_clear_distance_display,
     OBJECT_OT_toggle_annotations,
 )
