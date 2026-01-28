@@ -71,9 +71,12 @@ class VIEW3D_MT_misc_tools(Menu):
         if hasattr(context.scene, 'misc_settings'):
             settings = context.scene.misc_settings
             icon = 'CHECKBOX_HLT' if settings.material_sync_enabled else 'CHECKBOX_DEHLT'
-            layout.prop(settings, "material_sync_enabled", icon=icon)
+            row = layout.row()
+            row.prop(settings, "material_sync_enabled", icon=icon)
             if settings.material_sync_enabled:
-                layout.label(text="  颜色/金属度/糙度自动同步", icon='INFO')
+                row = layout.row()
+                row.alert = True  # 使用警告色（橙黄色）更显眼
+                row.label(text="颜色/金属度/糙度 自动同步中", icon='LINKED')
 
 
 class VIEW3D_MT_annotation_manage(Menu):
