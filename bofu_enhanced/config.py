@@ -41,6 +41,8 @@ class Config:
         EDGE_LENGTH_BG = (0.1, 0.4, 0.5, 0.5)   # 边长标签背景
         VERTEX_ANGLE_BG = (0.4, 0.2, 0.5, 0.5)  # 顶点角度标签背景
         LINE_ANGLE_BG = (0.4, 0.2, 0.5, 0.5)    # 线段角度标签背景
+        FACE_AREA_BG = (0.3, 0.5, 0.2, 0.5)     # 面积标签背景（绿色调）
+        PERIMETER_BG = (0.5, 0.4, 0.2, 0.5)     # 周长标签背景（橙色调）
         
         # 文本颜色
         TEXT_PRIMARY = (1.0, 1.0, 1.0, 1.0)     # 主要文本颜色（白色）
@@ -58,6 +60,8 @@ class Config:
     DISTANCE_FORMAT_SHORT = "{:.4f} m"  # 短距离格式
     ANGLE_FORMAT = "{:.2f}°"            # 角度格式
     VALUE_FORMAT = "{:.6f}"             # 通用数值格式
+    AREA_FORMAT = "{:.6f} m²"           # 面积格式
+    AREA_FORMAT_SHORT = "{:.4f} m²"     # 短面积格式
     
     # ==================== 视距裁剪 ====================
     MAX_ANNOTATION_DISTANCE = 500.0     # 标注最大显示距离
@@ -85,6 +89,8 @@ class AnnotationType:
     LINE_ANGLES = 'line_angles'
     RADIUS = 'radius'
     RADIUS_TEMP = 'radius_temp'
+    FACE_AREA = 'face_area'
+    PERIMETER = 'perimeter'
     
     # 兼容类型对
     COMPATIBLE_PAIRS = [
@@ -113,3 +119,5 @@ class MeasureMode:
     ANGLE_FACES = 'ANGLE_FACES'
     ANGLE_VERTS = 'ANGLE_VERTS'
     RADIUS = 'RADIUS'
+    FACE_AREA = 'FACE_AREA'
+    PERIMETER = 'PERIMETER'

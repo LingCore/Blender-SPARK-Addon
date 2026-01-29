@@ -143,6 +143,8 @@ class OBJECT_OT_connect_origins(Operator):
             (MeasureMode.ANGLE_FACES, '两面夹角', '选择2个面，计算法线夹角（适用于弯管、弯头等）'),
             (MeasureMode.ANGLE_VERTS, '顶点角度', '2点:线段与轴夹角; 3+点:每个顶点的角度（不创建几何体）'),
             (MeasureMode.RADIUS, '半距/全距（半径/直径）', '选择2个点/边/面，计算距离的一半和全长；或选择1个圆形面/3+个点拟合圆'),
+            (MeasureMode.FACE_AREA, '面积测量', '测量选中面的面积，支持单面和多面总计（不创建几何体）'),
+            (MeasureMode.PERIMETER, '周长测量', '测量选中面的周长或选中边的总长度（不创建几何体）'),
         ],
         default=MeasureMode.CENTER_DISTANCE,
     )
@@ -186,6 +188,18 @@ class OBJECT_OT_connect_origins(Operator):
             layout.separator()
             box = layout.box()
             box.label(text="边长测量模式不创建新几何体", icon='INFO')
+        elif self.measure_mode == MeasureMode.FACE_AREA:
+            layout.separator()
+            box = layout.box()
+            box.label(text="面积测量模式（需要面选择模式）", icon='INFO')
+            box.label(text="   单面: 显示该面面积")
+            box.label(text="   多面: 每面面积 + 总面积")
+        elif self.measure_mode == MeasureMode.PERIMETER:
+            layout.separator()
+            box = layout.box()
+            box.label(text="周长测量模式", icon='INFO')
+            box.label(text="   面模式: 计算面的边界周长")
+            box.label(text="   边模式: 计算选中边总长度")
         elif self.measure_mode == MeasureMode.CENTER_DISTANCE:
             self._draw_center_distance_options(layout)
         else:
@@ -372,6 +386,12 @@ class OBJECT_OT_connect_origins(Operator):
         
         elif self.measure_mode == MeasureMode.RADIUS:
             return self._measure_radius(context, edit_objects, select_mode)
+        
+        elif self.measure_mode == MeasureMode.FACE_AREA:
+            return self._measure_face_area(context, edit_objects, select_mode)
+        
+        elif self.measure_mode == MeasureMode.PERIMETER:
+            return self._measure_perimeter(context, edit_objects, select_mode)
         
         # 默认情况
         self.report({'WARNING'}, "不支持的测量模式")
@@ -757,6 +777,177 @@ class OBJECT_OT_connect_origins(Operator):
         refresh_3d_views(context)
         
         self.report({'INFO'}, f"半距: {radius:.6f} m，全距: {diameter:.6f} m")
+        return {'FINISHED'}
+    
+    def _measure_face_area(self, context, edit_objects, select_mode):
+        """面积测量"""
+        if not select_mode[2]:  # 不是面选择模式
+            self.report({'WARNING'}, "面积测量需要在面选择模式下使用")
+            return {'CANCELLED'}
+        
+        face_data_list = []
+        total_area = 0.0
+        
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.faces.ensure_lookup_table()
+            
+            # 获取物体的缩放因子用于计算世界坐标面积
+            scale = obj.matrix_world.to_scale()
+            # 面积缩放因子（对于非均匀缩放，这是近似值）
+            # 精确计算需要对每个面的顶点进行世界坐标变换
+            
+            for face_idx, f in enumerate(bm_read.faces):
+                if f.select:
+                    # 计算世界坐标面积
+                    # 将面的顶点转换到世界坐标计算面积
+                    verts_world = [obj.matrix_world @ v.co for v in f.verts]
+                    
+                    # 使用向量叉积计算多边形面积
+                    area = 0.0
+                    n = len(verts_world)
+                    if n >= 3:
+                        # 计算多边形面积（适用于任意多边形）
+                        center = sum(verts_world, Vector((0, 0, 0))) / n
+                        for i in range(n):
+                            v1 = verts_world[i] - center
+                            v2 = verts_world[(i + 1) % n] - center
+                            area += v1.cross(v2).length / 2
+                    
+                    face_data_list.append({
+                        'obj_name': obj.name,
+                        'face_idx': face_idx,
+                        'vert_indices': [v.index for v in f.verts],
+                        'area': area,
+                    })
+                    total_area += area
+        
+        if len(face_data_list) == 0:
+            self.report({'WARNING'}, "请至少选择1个面")
+            return {'CANCELLED'}
+        
+        # 注册标注
+        register_annotation("__face_area__", AnnotationType.FACE_AREA, {
+            'face_data': face_data_list,
+            'total_area': total_area,
+        })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        face_count = len(face_data_list)
+        if face_count == 1:
+            self.report({'INFO'}, f"面积: {total_area:.6f} m²")
+        else:
+            self.report({'INFO'}, f"选中 {face_count} 个面，总面积: {total_area:.6f} m²")
+        
+        return {'FINISHED'}
+    
+    def _measure_perimeter(self, context, edit_objects, select_mode):
+        """周长测量"""
+        if select_mode[0]:  # 顶点选择模式
+            self.report({'WARNING'}, "周长测量需要在边或面选择模式下使用")
+            return {'CANCELLED'}
+        
+        perimeter_data_list = []
+        total_perimeter = 0.0
+        
+        if select_mode[2]:  # 面选择模式
+            # 计算选中面的边界周长
+            for obj in edit_objects:
+                bm_read = bmesh.from_edit_mesh(obj.data)
+                bm_read.faces.ensure_lookup_table()
+                
+                for face_idx, f in enumerate(bm_read.faces):
+                    if f.select:
+                        # 计算面的周长（所有边的世界坐标长度之和）
+                        perimeter = 0.0
+                        edge_data = []
+                        
+                        for e in f.edges:
+                            v1_world = obj.matrix_world @ e.verts[0].co
+                            v2_world = obj.matrix_world @ e.verts[1].co
+                            edge_length = (v2_world - v1_world).length
+                            perimeter += edge_length
+                            edge_data.append({
+                                'v1_idx': e.verts[0].index,
+                                'v2_idx': e.verts[1].index,
+                                'length': edge_length,
+                            })
+                        
+                        perimeter_data_list.append({
+                            'obj_name': obj.name,
+                            'face_idx': face_idx,
+                            'vert_indices': [v.index for v in f.verts],
+                            'perimeter': perimeter,
+                            'edge_count': len(f.edges),
+                            'edges': edge_data,
+                        })
+                        total_perimeter += perimeter
+            
+            if len(perimeter_data_list) == 0:
+                self.report({'WARNING'}, "请至少选择1个面")
+                return {'CANCELLED'}
+            
+            # 注册标注
+            register_annotation("__perimeter__", AnnotationType.PERIMETER, {
+                'mode': 'face',
+                'perimeter_data': perimeter_data_list,
+                'total_perimeter': total_perimeter,
+            })
+            
+            ensure_draw_handler_enabled()
+            refresh_3d_views(context)
+            
+            face_count = len(perimeter_data_list)
+            if face_count == 1:
+                self.report({'INFO'}, f"周长: {total_perimeter:.6f} m")
+            else:
+                self.report({'INFO'}, f"选中 {face_count} 个面，总周长: {total_perimeter:.6f} m")
+        
+        else:  # 边选择模式
+            # 计算选中边的总长度
+            edge_data_list = []
+            
+            for obj in edit_objects:
+                bm_read = bmesh.from_edit_mesh(obj.data)
+                bm_read.edges.ensure_lookup_table()
+                
+                for edge_idx, e in enumerate(bm_read.edges):
+                    if e.select:
+                        v1_world = obj.matrix_world @ e.verts[0].co
+                        v2_world = obj.matrix_world @ e.verts[1].co
+                        edge_length = (v2_world - v1_world).length
+                        
+                        edge_data_list.append({
+                            'obj_name': obj.name,
+                            'edge_idx': edge_idx,
+                            'v1_idx': e.verts[0].index,
+                            'v2_idx': e.verts[1].index,
+                            'length': edge_length,
+                        })
+                        total_perimeter += edge_length
+            
+            if len(edge_data_list) == 0:
+                self.report({'WARNING'}, "请至少选择1条边")
+                return {'CANCELLED'}
+            
+            # 注册标注
+            register_annotation("__perimeter__", AnnotationType.PERIMETER, {
+                'mode': 'edge',
+                'edge_data': edge_data_list,
+                'total_perimeter': total_perimeter,
+            })
+            
+            ensure_draw_handler_enabled()
+            refresh_3d_views(context)
+            
+            edge_count = len(edge_data_list)
+            if edge_count == 1:
+                self.report({'INFO'}, f"边长: {total_perimeter:.6f} m")
+            else:
+                self.report({'INFO'}, f"选中 {edge_count} 条边，总长度: {total_perimeter:.6f} m")
+        
         return {'FINISHED'}
     
     # ==================== 物体模式执行 ====================

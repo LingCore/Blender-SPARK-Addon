@@ -732,6 +732,10 @@ def unified_draw_callback():
             draw_radius_annotation(obj_name, data, region, rv3d)
         elif annotation_type == AnnotationType.RADIUS_TEMP:
             draw_radius_temp_annotation(data, region, rv3d)
+        elif annotation_type == AnnotationType.FACE_AREA:
+            draw_face_area_annotation(data, region, rv3d)
+        elif annotation_type == AnnotationType.PERIMETER:
+            draw_perimeter_annotation(data, region, rv3d)
 
 
 # ==================== 绘制辅助函数（使用 LabelRenderer）====================
@@ -1201,6 +1205,201 @@ def draw_radius_temp_annotation(data, region, rv3d):
     screen_pos = location_3d_to_region_2d(region, rv3d, center)
     if screen_pos:
         draw_radius_label(screen_pos, radius, diameter, is_circle)
+
+
+def draw_face_area_label(screen_pos, area, is_total=False):
+    """绘制面积标签"""
+    if is_total:
+        text = f"总面积: {Config.AREA_FORMAT.format(area)}"
+    else:
+        text = Config.AREA_FORMAT.format(area)
+    
+    LabelRenderer.draw_single_line_label(
+        screen_pos, text,
+        text_color=Config.Colors.TEXT_PRIMARY if not is_total else Config.Colors.TEXT_HIGHLIGHT,
+        bg_color=get_bg_color('face_area'),
+        font_size=get_font_size() if not is_total else Config.DEFAULT_FONT_SIZE
+    )
+
+
+def draw_face_area_annotation(data, region, rv3d):
+    """绘制面积标注（支持编辑模式实时刷新）"""
+    face_data = data.get('face_data', [])
+    
+    if not face_data:
+        return
+    
+    from mathutils import Vector
+    
+    all_centers = []
+    all_areas = []
+    
+    for face_info in face_data:
+        obj_name = face_info.get('obj_name')
+        vert_indices = face_info.get('vert_indices', [])
+        
+        # 使用实时获取顶点坐标的函数（支持编辑模式）
+        verts_world = []
+        for v_idx in vert_indices:
+            v_world = get_vertex_world_coord_realtime(obj_name, v_idx)
+            if v_world is not None:
+                verts_world.append(v_world)
+        
+        if len(verts_world) < 3:
+            continue
+        
+        # 计算面中心
+        center = sum(verts_world, Vector((0, 0, 0))) / len(verts_world)
+        all_centers.append(center)
+        
+        # 实时计算面积
+        area = 0.0
+        n = len(verts_world)
+        center_local = sum(verts_world, Vector((0, 0, 0))) / n
+        for i in range(n):
+            v1 = verts_world[i] - center_local
+            v2 = verts_world[(i + 1) % n] - center_local
+            area += v1.cross(v2).length / 2
+        
+        all_areas.append(area)
+        
+        # 绘制单个面的面积
+        screen_pos = location_3d_to_region_2d(region, rv3d, center)
+        if screen_pos:
+            draw_face_area_label(screen_pos, area, is_total=False)
+    
+    # 如果有多个面，在整体中心显示总面积
+    if len(all_areas) > 1 and all_centers:
+        overall_center = sum(all_centers, Vector((0, 0, 0))) / len(all_centers)
+        # 计算实时总面积
+        realtime_total = sum(all_areas)
+        
+        # 偏移显示总面积，避免重叠
+        screen_pos = location_3d_to_region_2d(region, rv3d, overall_center)
+        if screen_pos:
+            offset_pos = (screen_pos[0], screen_pos[1] - 40)  # 向下偏移
+            draw_face_area_label(offset_pos, realtime_total, is_total=True)
+
+
+def draw_perimeter_label(screen_pos, perimeter, is_total=False, mode='face'):
+    """绘制周长标签"""
+    if mode == 'face':
+        if is_total:
+            text = f"总周长: {Config.DISTANCE_FORMAT.format(perimeter)}"
+        else:
+            text = f"周长: {Config.DISTANCE_FORMAT_SHORT.format(perimeter)}"
+    else:  # edge mode
+        if is_total:
+            text = f"总长度: {Config.DISTANCE_FORMAT.format(perimeter)}"
+        else:
+            text = Config.DISTANCE_FORMAT_SHORT.format(perimeter)
+    
+    LabelRenderer.draw_single_line_label(
+        screen_pos, text,
+        text_color=Config.Colors.TEXT_PRIMARY if not is_total else Config.Colors.TEXT_HIGHLIGHT,
+        bg_color=get_bg_color('perimeter'),
+        font_size=get_font_size() if not is_total else Config.DEFAULT_FONT_SIZE
+    )
+
+
+def draw_perimeter_annotation(data, region, rv3d):
+    """绘制周长标注（支持编辑模式实时刷新）"""
+    mode = data.get('mode', 'face')
+    
+    from mathutils import Vector
+    
+    all_centers = []
+    all_perimeters = []
+    
+    if mode == 'face':
+        perimeter_data = data.get('perimeter_data', [])
+        
+        if not perimeter_data:
+            return
+        
+        for peri_info in perimeter_data:
+            obj_name = peri_info.get('obj_name')
+            vert_indices = peri_info.get('vert_indices', [])
+            
+            # 使用实时获取顶点坐标的函数（支持编辑模式）
+            verts_world = []
+            for v_idx in vert_indices:
+                v_world = get_vertex_world_coord_realtime(obj_name, v_idx)
+                if v_world is not None:
+                    verts_world.append(v_world)
+            
+            if len(verts_world) < 3:
+                continue
+            
+            # 计算面中心
+            center = sum(verts_world, Vector((0, 0, 0))) / len(verts_world)
+            all_centers.append(center)
+            
+            # 实时计算周长
+            perimeter = 0.0
+            n = len(verts_world)
+            for i in range(n):
+                v1 = verts_world[i]
+                v2 = verts_world[(i + 1) % n]
+                perimeter += (v2 - v1).length
+            
+            all_perimeters.append(perimeter)
+            
+            # 绘制单个面的周长
+            screen_pos = location_3d_to_region_2d(region, rv3d, center)
+            if screen_pos:
+                draw_perimeter_label(screen_pos, perimeter, is_total=False, mode='face')
+        
+        # 如果有多个面，在整体中心显示总周长
+        if len(all_perimeters) > 1 and all_centers:
+            overall_center = sum(all_centers, Vector((0, 0, 0))) / len(all_centers)
+            realtime_total = sum(all_perimeters)
+            
+            # 偏移显示总周长，避免重叠
+            screen_pos = location_3d_to_region_2d(region, rv3d, overall_center)
+            if screen_pos:
+                offset_pos = (screen_pos[0], screen_pos[1] - 40)
+                draw_perimeter_label(offset_pos, realtime_total, is_total=True, mode='face')
+    
+    else:  # edge mode
+        edge_data = data.get('edge_data', [])
+        
+        if not edge_data:
+            return
+        
+        all_lengths = []
+        
+        for edge_info in edge_data:
+            obj_name = edge_info.get('obj_name')
+            v1_idx = edge_info.get('v1_idx')
+            v2_idx = edge_info.get('v2_idx')
+            
+            # 使用实时获取边坐标的函数（支持编辑模式）
+            v1_world, v2_world = get_edge_world_coords_realtime(obj_name, v1_idx, v2_idx)
+            if v1_world is None or v2_world is None:
+                continue
+            
+            mid_point = (v1_world + v2_world) / 2
+            all_centers.append(mid_point)
+            
+            # 实时计算边长
+            length = (v2_world - v1_world).length
+            all_lengths.append(length)
+            
+            # 绘制单条边的长度
+            screen_pos = location_3d_to_region_2d(region, rv3d, mid_point)
+            if screen_pos:
+                draw_perimeter_label(screen_pos, length, is_total=False, mode='edge')
+        
+        # 如果有多条边，在整体中心显示总长度
+        if len(all_lengths) > 1 and all_centers:
+            overall_center = sum(all_centers, Vector((0, 0, 0))) / len(all_centers)
+            realtime_total = sum(all_lengths)
+            
+            screen_pos = location_3d_to_region_2d(region, rv3d, overall_center)
+            if screen_pos:
+                offset_pos = (screen_pos[0], screen_pos[1] - 40)
+                draw_perimeter_label(offset_pos, realtime_total, is_total=True, mode='edge')
 
 
 # ==================== 标注管理操作符 ====================
