@@ -578,6 +578,7 @@ class KINEMATICS_PT_main_panel(bpy.types.Panel):
             row.enabled = not props.is_active
             row.prop(props, "driver_min", text=f"最小({unit})")
             row.prop(props, "driver_max", text=f"最大({unit})")
+            row.operator("bofu.auto_compute_limits", text="", icon='FILE_REFRESH')
         else:
             box.label(text="  未设置驱动关节", icon='ERROR')
 

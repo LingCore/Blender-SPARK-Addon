@@ -588,6 +588,103 @@ class PlanarMechanismSolver:
 
         return result
 
+    def compute_driver_limits(self, safety_factor=1.0):
+        """
+        自动计算驱动值的安全极限范围
+
+        从 driver_value=0 开始，向正/负两个方向连续扫描，
+        直到求解器无法收敛（即机构达到物理极限/死点）。
+        求解器在精确死点处本身就无法收敛，因此自然失败边界
+        就是天然的安全余量，默认不再额外缩减。
+
+        参数:
+            safety_factor: 安全系数 (0.0-1.0)，极限值乘以此系数
+                           1.0 表示直接使用求解器能到达的最远位置
+
+        返回: (min_limit, max_limit) 或 None（计算失败）
+        """
+        if not check_numpy():
+            return None
+
+        if self.driver_info is None:
+            return None
+
+        # 保存当前求解器状态
+        saved_solution = self._last_solution.copy() if self._last_solution is not None else None
+
+        # 确保初始状态可解（driver_value=0 即初始位置）
+        self._last_solution = self._build_state_vector()
+        test = self.solve(0.0)
+        if test is None:
+            self._last_solution = saved_solution
+            return None
+        initial_solution = self._last_solution.copy()
+
+        # 正方向极限
+        self._last_solution = initial_solution.copy()
+        max_limit = self._probe_limit(direction=+1)
+
+        # 负方向极限
+        self._last_solution = initial_solution.copy()
+        min_limit = self._probe_limit(direction=-1)
+
+        # 恢复求解器状态
+        self._last_solution = saved_solution
+
+        # 应用安全系数（正值变小、负值绝对值变小，都向 0 靠拢）
+        max_limit *= safety_factor
+        min_limit *= safety_factor
+
+        return (min_limit, max_limit)
+
+    def _probe_limit(self, direction):
+        """
+        向指定方向探测驱动极限值
+
+        纯粹依赖求解器收敛性检测：连续递增驱动值直到求解器失败，
+        然后多轮回退精搜逼近真实死点。
+
+        利用 solve() 的回滚机制：失败时 _last_solution 自动恢复到
+        上一次成功的解，因此精搜轮次之间无需手动保存/恢复状态。
+
+        参数:
+            direction: +1（正方向）或 -1（负方向）
+
+        返回: 该方向上的极限驱动值（求解器能收敛的最后一个值）
+        """
+        MAX_PROBE_VALUE = 10.0  # 最大探测值（安全上限）
+        MAX_STEPS = 1000        # 每轮最大步数
+        REFINEMENT_ROUNDS = 3   # 精搜轮数（步长逐轮缩小 10 倍）
+
+        # 根据驱动类型确定初始步长
+        jd = self.driver_info['joint_data']
+        if jd['type'] == 'REVOLUTE':
+            step = math.radians(1.0)  # 1° ≈ 0.0175 rad
+        else:
+            step = 0.002  # 2mm
+
+        last_good = 0.0
+
+        for _ in range(1 + REFINEMENT_ROUNDS):
+            value = last_good
+            steps_taken = 0
+            # _last_solution 已处于 last_good 对应的解
+            # （初始时由 compute_driver_limits 设置，
+            #   后续由 solve 的失败回滚机制自动保持）
+
+            while abs(value) < MAX_PROBE_VALUE and steps_taken < MAX_STEPS:
+                value += direction * step
+                if self.solve(value) is None:
+                    # 求解失败 → _last_solution 已自动回滚到 last_good
+                    break
+                last_good = value
+                steps_taken += 1
+
+            # 缩小步长进入下一轮精搜
+            step /= 10.0
+
+        return last_good
+
 
 # ==================== 全局求解器缓存 ====================
 
@@ -1343,6 +1440,71 @@ class BOFU_OT_kinematics_demo(Operator):
         return {'FINISHED'}
 
 
+class BOFU_OT_auto_compute_limits(Operator):
+    """根据机构几何自动计算驱动关节的安全极限范围"""
+    bl_idname = "bofu.auto_compute_limits"
+    bl_label = "自动计算极限"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        if not check_numpy():
+            return False
+        props = context.scene.kinematics_props
+        return (
+            len(props.joints) > 0
+            and props.driver_joint_index >= 0
+            and props.driver_joint_index < len(props.joints)
+            and not props.is_active
+        )
+
+    def execute(self, context):
+        props = context.scene.kinematics_props
+
+        # 构建临时求解器
+        solver = PlanarMechanismSolver(props.working_plane)
+        solver.build_from_scene(context)
+
+        # 检查自由度
+        dof = solver.compute_dof()
+        if dof != 1:
+            self.report(
+                {'ERROR'},
+                f"自由度为 {dof}，需要恰好为 1 才能计算极限"
+            )
+            return {'CANCELLED'}
+
+        # 计算极限
+        result = solver.compute_driver_limits()
+        if result is None:
+            self.report(
+                {'ERROR'},
+                "无法计算驱动极限（求解器初始化失败）"
+            )
+            return {'CANCELLED'}
+
+        min_limit, max_limit = result
+
+        # 转换单位：旋转关节 弧度→度
+        driver_joint = props.joints[props.driver_joint_index]
+        if driver_joint.joint_type == 'REVOLUTE':
+            min_limit = math.degrees(min_limit)
+            max_limit = math.degrees(max_limit)
+            unit = "°"
+        else:
+            unit = "m"
+
+        # 设置属性
+        props.driver_min = min_limit
+        props.driver_max = max_limit
+
+        self.report(
+            {'INFO'},
+            f"驱动极限已计算: {min_limit:.4f}{unit} ~ {max_limit:.4f}{unit}"
+        )
+        return {'FINISHED'}
+
+
 # ==================== 类注册列表 ====================
 
 classes = (
@@ -1355,5 +1517,6 @@ classes = (
     BOFU_OT_reset_to_start,
     BOFU_OT_update_pivot_from_cursor,
     BOFU_OT_clear_all_joints,
+    BOFU_OT_auto_compute_limits,
     BOFU_OT_kinematics_demo,
 )
