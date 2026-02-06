@@ -18,6 +18,8 @@ Blender 4.2+ 增强工具包
 - operators_export.py: 批量导出操作符
 - operators_material.py: 批量材质操作符
 - operators_measure.py: 智能测量操作符
+- operators_kinematics.py: 机构运动学（求解器、关节、驱动极限自动计算）
+- operators_demo.py: 演示场景
 - ui.py: 菜单和面板
 """
 

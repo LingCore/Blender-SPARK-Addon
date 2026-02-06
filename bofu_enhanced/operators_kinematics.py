@@ -8,7 +8,9 @@ bofu_enhanced/operators_kinematics.py
 - 关节定义（旋转关节、平移关节）
 - Newton-Raphson 迭代求解器
 - 实时驱动动画（滑块驱动）
+- 驱动极限自动计算（多轮精搜逼近死点）
 - 原始变换保存/恢复
+- 肘节夹钳演示场景
 """
 
 import bpy
