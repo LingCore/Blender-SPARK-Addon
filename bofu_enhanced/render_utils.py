@@ -312,5 +312,6 @@ def get_bg_color(color_type):
         'line_angle': Config.Colors.LINE_ANGLE_BG,
         'face_area': Config.Colors.FACE_AREA_BG,
         'perimeter': Config.Colors.PERIMETER_BG,
+        'arc_length': Config.Colors.ARC_LENGTH_BG,
     }
     return color_map.get(color_type, Config.Colors.DISTANCE_BG)

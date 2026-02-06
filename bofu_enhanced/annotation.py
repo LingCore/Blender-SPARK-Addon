@@ -150,6 +150,13 @@ class AnnotationKeyGenerator:
             elif 'measure_mode' in data and 'edge_indices' in data:
                 key = ('distance_bound', data['measure_mode'], tuple(data['edge_indices']))
         
+        elif annotation_type == AnnotationType.ARC_LENGTH:
+            if 'vert_refs' in data:
+                # 弧长标注的唯一性由3个顶点引用决定（顺序敏感，圆心在第一位）
+                key = ('arc_length', tuple(data['vert_refs']))
+            elif 'center_vert_idx' in data:
+                key = ('arc_length_bound', data.get('is_bound', False))
+        
         if key is None:
             return None
         
@@ -736,6 +743,8 @@ def unified_draw_callback():
             draw_face_area_annotation(data, region, rv3d)
         elif annotation_type == AnnotationType.PERIMETER:
             draw_perimeter_annotation(data, region, rv3d)
+        elif annotation_type == AnnotationType.ARC_LENGTH:
+            draw_arc_length_annotation(obj_name, data, region, rv3d)
 
 
 # ==================== 绘制辅助函数（使用 LabelRenderer）====================
@@ -1400,6 +1409,139 @@ def draw_perimeter_annotation(data, region, rv3d):
             if screen_pos:
                 offset_pos = (screen_pos[0], screen_pos[1] - 40)
                 draw_perimeter_label(offset_pos, realtime_total, is_total=True, mode='edge')
+
+
+# ==================== 弧长/扇形标注绘制 ====================
+
+def draw_arc_length_label(screen_pos, arc_data):
+    """绘制弧长/扇形标签（多行）"""
+    lines = [
+        f"半径: {arc_data['avg_radius']:.6f} m",
+        f"弧角: {arc_data['angle_deg']:.2f}°",
+        f"弧长: {arc_data['arc_length']:.6f} m",
+        f"弦长: {arc_data['chord_length']:.6f} m",
+        f"扇形面积: {arc_data['sector_area']:.6f} m²",
+    ]
+    colors = [
+        Config.Colors.TEXT_PRIMARY,        # 半径 - 白色
+        Config.Colors.TEXT_HIGHLIGHT,      # 弧角 - 黄色
+        Config.Colors.TEXT_PRIMARY,        # 弧长 - 白色
+        Config.Colors.TEXT_PRIMARY,        # 弦长 - 白色
+        Config.Colors.TEXT_PRIMARY,        # 扇形面积 - 白色
+    ]
+    
+    # 如果半径偏差较大，添加警告行
+    if arc_data.get('radius_diff', 0) > 0.0001:
+        lines.append(f"⚠半径偏差: {arc_data['radius_diff']:.6f} m")
+        colors.append((1.0, 0.5, 0.3, 1.0))  # 橙色警告
+    
+    LabelRenderer.draw_multi_line_label(
+        screen_pos, lines, colors,
+        bg_color=get_bg_color('arc_length'),
+        font_size=get_font_size(),
+        padding=12,
+        line_height=Config.LINE_HEIGHT_SMALL,
+        line_spacing=Config.LINE_SPACING_SMALL
+    )
+
+
+def _calc_arc_data_from_points(center, p_start, p_end):
+    """从3个世界坐标点计算弧长数据"""
+    vec_a = p_start - center
+    vec_b = p_end - center
+    radius_a = vec_a.length
+    radius_b = vec_b.length
+    avg_radius = (radius_a + radius_b) / 2
+    radius_diff = abs(radius_a - radius_b)
+    
+    if vec_a.length < 1e-8 or vec_b.length < 1e-8:
+        return None
+    
+    dot = vec_a.normalized().dot(vec_b.normalized())
+    dot = max(-1.0, min(1.0, dot))
+    angle_rad = math.acos(dot)
+    angle_deg = math.degrees(angle_rad)
+    
+    arc_length = avg_radius * angle_rad
+    chord_length = (p_end - p_start).length
+    sector_area = 0.5 * avg_radius ** 2 * angle_rad
+    
+    return {
+        'avg_radius': avg_radius,
+        'radius_diff': radius_diff,
+        'angle_deg': angle_deg,
+        'arc_length': arc_length,
+        'chord_length': chord_length,
+        'sector_area': sector_area,
+    }
+
+
+def draw_arc_length_annotation(obj_name, data, region, rv3d):
+    """绘制弧长/扇形标注"""
+    vert_refs = data.get('vert_refs')
+    is_bound = data.get('is_bound', False)
+    
+    if vert_refs and len(vert_refs) == 3:
+        # 临时标注模式：从顶点引用实时获取坐标
+        center_ref, start_ref, end_ref = vert_refs[0], vert_refs[1], vert_refs[2]
+        
+        center = get_vertex_world_coord_realtime(*center_ref)
+        p_start = get_vertex_world_coord_realtime(*start_ref)
+        p_end = get_vertex_world_coord_realtime(*end_ref)
+        
+        if center is None or p_start is None or p_end is None:
+            return
+        
+        # 实时计算弧长数据
+        arc_data = _calc_arc_data_from_points(center, p_start, p_end)
+        if arc_data is None:
+            return
+        
+        # 标签位置：弧的中点（圆心到两端点中点方向上，距离为半径的位置）
+        mid_dir = ((p_start - center).normalized() + (p_end - center).normalized())
+        if mid_dir.length > 1e-8:
+            mid_dir = mid_dir.normalized()
+            label_pos = center + mid_dir * arc_data['avg_radius'] * 0.5
+        else:
+            label_pos = (p_start + p_end) / 2
+        
+        screen_pos = location_3d_to_region_2d(region, rv3d, label_pos)
+        if screen_pos:
+            draw_arc_length_label(screen_pos, arc_data)
+    
+    elif is_bound:
+        # 绑定几何体模式：从测量对象顶点获取坐标
+        obj = bpy.data.objects.get(obj_name)
+        if not obj or obj.type != 'MESH':
+            return
+        
+        mesh = obj.data
+        center_vert_idx = data.get('center_vert_idx', 0)
+        
+        if len(mesh.vertices) < 3:
+            return
+        
+        # 顶点顺序: [center, p_start, p_end]
+        center = obj.matrix_world @ mesh.vertices[0].co
+        p_start = obj.matrix_world @ mesh.vertices[1].co
+        p_end = obj.matrix_world @ mesh.vertices[2].co
+        
+        # 实时计算弧长数据
+        arc_data = _calc_arc_data_from_points(center, p_start, p_end)
+        if arc_data is None:
+            return
+        
+        # 标签位置
+        mid_dir = ((p_start - center).normalized() + (p_end - center).normalized())
+        if mid_dir.length > 1e-8:
+            mid_dir = mid_dir.normalized()
+            label_pos = center + mid_dir * arc_data['avg_radius'] * 0.5
+        else:
+            label_pos = (p_start + p_end) / 2
+        
+        screen_pos = location_3d_to_region_2d(region, rv3d, label_pos)
+        if screen_pos:
+            draw_arc_length_label(screen_pos, arc_data)
 
 
 # ==================== 标注管理操作符 ====================

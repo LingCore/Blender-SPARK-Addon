@@ -43,6 +43,7 @@ class Config:
         LINE_ANGLE_BG = (0.4, 0.2, 0.5, 0.5)    # 线段角度标签背景
         FACE_AREA_BG = (0.3, 0.5, 0.2, 0.5)     # 面积标签背景（绿色调）
         PERIMETER_BG = (0.5, 0.4, 0.2, 0.5)     # 周长标签背景（橙色调）
+        ARC_LENGTH_BG = (0.4, 0.2, 0.6, 0.5)    # 弧长标签背景（紫色调）
         
         # 文本颜色
         TEXT_PRIMARY = (1.0, 1.0, 1.0, 1.0)     # 主要文本颜色（白色）
@@ -62,6 +63,7 @@ class Config:
     VALUE_FORMAT = "{:.6f}"             # 通用数值格式
     AREA_FORMAT = "{:.6f} m²"           # 面积格式
     AREA_FORMAT_SHORT = "{:.4f} m²"     # 短面积格式
+    ARC_FORMAT = "{:.6f} m"             # 弧长格式
     
     # ==================== 视距裁剪 ====================
     MAX_ANNOTATION_DISTANCE = 500.0     # 标注最大显示距离
@@ -91,6 +93,7 @@ class AnnotationType:
     RADIUS_TEMP = 'radius_temp'
     FACE_AREA = 'face_area'
     PERIMETER = 'perimeter'
+    ARC_LENGTH = 'arc_length'
     
     # 兼容类型对
     COMPATIBLE_PAIRS = [
@@ -121,3 +124,4 @@ class MeasureMode:
     RADIUS = 'RADIUS'
     FACE_AREA = 'FACE_AREA'
     PERIMETER = 'PERIMETER'
+    ARC_LENGTH = 'ARC_LENGTH'

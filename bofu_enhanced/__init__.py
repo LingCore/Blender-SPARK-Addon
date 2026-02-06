@@ -38,7 +38,24 @@ import bpy
 import gc
 from bpy.app.handlers import persistent
 
-# ==================== 模块导入 ====================
+# ==================== 模块导入（支持热重载）====================
+
+# 热重载支持：如果子模块已经加载过，则强制刷新
+if "config" in locals():
+    import importlib
+    importlib.reload(config)
+    importlib.reload(render_utils)
+    importlib.reload(preferences)
+    importlib.reload(properties)
+    importlib.reload(annotation)
+    importlib.reload(operators_object)
+    importlib.reload(operators_transform)
+    importlib.reload(operators_align)
+    importlib.reload(operators_export)
+    importlib.reload(operators_material)
+    importlib.reload(operators_measure)
+    importlib.reload(operators_demo)
+    importlib.reload(ui)
 
 from . import config
 from . import render_utils
@@ -51,6 +68,7 @@ from . import operators_align
 from . import operators_export
 from . import operators_material
 from . import operators_measure
+from . import operators_demo
 from . import ui
 
 
@@ -176,6 +194,7 @@ def register():
         operators_export.classes +
         operators_material.classes +
         operators_measure.classes +
+        operators_demo.classes +
         ui.classes
     )
     
@@ -324,6 +343,7 @@ def unregister():
         operators_export.classes +
         operators_material.classes +
         operators_measure.classes +
+        operators_demo.classes +
         ui.classes
     )
     

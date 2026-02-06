@@ -140,6 +140,8 @@ class VIEW3D_MT_annotation_manage(Menu):
         layout.operator("bofu.clear_temp_annotations", text="清除临时标注", icon='X')
         layout.operator("bofu.clear_all_annotations", text="清除所有标注", icon='TRASH')
         layout.separator()
+        layout.operator("bofu.cleanup_demo", text="清理演示对象", icon='SCULPTMODE_HLT')
+        layout.separator()
         layout.operator("bofu.annotation_info", text="标注信息", icon='INFO')
         
         # 杂项设置

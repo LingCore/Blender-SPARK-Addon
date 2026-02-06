@@ -145,6 +145,7 @@ class OBJECT_OT_connect_origins(Operator):
             (MeasureMode.RADIUS, '半距/全距（半径/直径）', '选择2个点/边/面，计算距离的一半和全长；或选择1个圆形面/3+个点拟合圆'),
             (MeasureMode.FACE_AREA, '面积测量', '测量选中面的面积，支持单面和多面总计（不创建几何体）'),
             (MeasureMode.PERIMETER, '周长测量', '测量选中面的周长或选中边的总长度（不创建几何体）'),
+            (MeasureMode.ARC_LENGTH, '弧长/扇形（运动学）', '选3个点(圆心+起点+终点)，计算弧长、弧角、弦长、扇形面积（适用于凸轮、齿轮、曲柄等）'),
         ],
         default=MeasureMode.CENTER_DISTANCE,
     )
@@ -180,29 +181,51 @@ class OBJECT_OT_connect_origins(Operator):
             box.label(text="顶点角度模式不创建新几何体", icon='INFO')
             box.label(text="   2点: 计算线段与坐标轴的夹角")
             box.label(text="   3+点: 计算每个顶点的角度")
+            self._draw_demo_button(box, MeasureMode.ANGLE_VERTS)
         elif self.measure_mode == MeasureMode.ANGLE_EDGES:
             layout.separator()
             box = layout.box()
             box.label(text="选择2条边，计算夹角", icon='INFO')
+            self._draw_demo_button(box, MeasureMode.ANGLE_EDGES)
         elif self.measure_mode == MeasureMode.EDGE_LENGTH:
             layout.separator()
             box = layout.box()
             box.label(text="边长测量模式不创建新几何体", icon='INFO')
+            self._draw_demo_button(box, MeasureMode.EDGE_LENGTH)
         elif self.measure_mode == MeasureMode.FACE_AREA:
             layout.separator()
             box = layout.box()
             box.label(text="面积测量模式（需要面选择模式）", icon='INFO')
             box.label(text="   单面: 显示该面面积")
             box.label(text="   多面: 每面面积 + 总面积")
+            self._draw_demo_button(box, MeasureMode.FACE_AREA)
         elif self.measure_mode == MeasureMode.PERIMETER:
             layout.separator()
             box = layout.box()
             box.label(text="周长测量模式", icon='INFO')
             box.label(text="   面模式: 计算面的边界周长")
             box.label(text="   边模式: 计算选中边总长度")
+            self._draw_demo_button(box, MeasureMode.PERIMETER)
+        elif self.measure_mode == MeasureMode.ARC_LENGTH:
+            layout.separator()
+            box = layout.box()
+            box.label(text="弧长/扇形测量（运动学）", icon='CURVE_BEZCURVE')
+            box.label(text="   选择3个点: 圆心 + 弧起点 + 弧终点")
+            box.label(text="   编辑模式: 顶点模式选3个顶点")
+            box.label(text="   物体模式: 活动对象=圆心, 另2个=弧端")
+            box.separator()
+            box.label(text="计算: 半径/弧角/弧长/弦长/扇形面积", icon='KEYTYPE_KEYFRAME_VEC')
+            self._draw_demo_button(box, MeasureMode.ARC_LENGTH)
+            layout.separator()
+            layout.prop(self, "create_geometry")
         elif self.measure_mode == MeasureMode.CENTER_DISTANCE:
             self._draw_center_distance_options(layout)
         else:
+            # XYZ_SPLIT, RADIUS 等其他模式
+            layout.separator()
+            box = layout.box()
+            box.label(text="提示: 点击下方按钮查看演示", icon='INFO')
+            self._draw_demo_button(box, self.measure_mode)
             layout.separator()
             layout.prop(self, "create_geometry")
     
@@ -243,6 +266,21 @@ class OBJECT_OT_connect_origins(Operator):
         row.prop(self, "center_offset_y", text="Y")
         row.prop(self, "center_offset_z", text="Z")
         layout.prop(self, "create_geometry")
+        
+        # 演示按钮
+        layout.separator()
+        self._draw_demo_button(layout, MeasureMode.CENTER_DISTANCE)
+    
+    # ==================== 演示按钮 ====================
+    
+    @staticmethod
+    def _draw_demo_button(parent_layout, mode):
+        """在指定布局中绘制演示按钮"""
+        parent_layout.separator()
+        row = parent_layout.row()
+        row.scale_y = 1.2
+        op = row.operator("object.measure_demo", text="演示此模式", icon='PLAY')
+        op.demo_mode = mode
     
     # ==================== 计算辅助方法 ====================
     
@@ -392,6 +430,9 @@ class OBJECT_OT_connect_origins(Operator):
         
         elif self.measure_mode == MeasureMode.PERIMETER:
             return self._measure_perimeter(context, edit_objects, select_mode)
+        
+        elif self.measure_mode == MeasureMode.ARC_LENGTH:
+            return self._measure_arc_length(context, edit_objects)
         
         # 默认情况
         self.report({'WARNING'}, "不支持的测量模式")
@@ -950,6 +991,133 @@ class OBJECT_OT_connect_origins(Operator):
         
         return {'FINISHED'}
     
+    # ==================== 弧长/扇形测量 ====================
+    
+    def _calc_arc_data(self, center, p_start, p_end):
+        """
+        计算弧长相关数据
+        
+        参数:
+            center: 圆心世界坐标
+            p_start: 弧起点世界坐标
+            p_end: 弧终点世界坐标
+        
+        返回: dict 包含所有弧长测量结果
+        """
+        vec_a = p_start - center
+        vec_b = p_end - center
+        radius_a = vec_a.length
+        radius_b = vec_b.length
+        avg_radius = (radius_a + radius_b) / 2
+        radius_diff = abs(radius_a - radius_b)
+        
+        # 弧度角
+        len_a = vec_a.length
+        len_b = vec_b.length
+        if len_a < Config.VECTOR_LENGTH_EPSILON or len_b < Config.VECTOR_LENGTH_EPSILON:
+            return None
+        
+        dot = vec_a.normalized().dot(vec_b.normalized())
+        dot = max(-1.0, min(1.0, dot))
+        angle_rad = math.acos(dot)
+        angle_deg = math.degrees(angle_rad)
+        
+        # 弧长、弦长、扇形面积
+        arc_length = avg_radius * angle_rad
+        chord_length = (p_end - p_start).length
+        sector_area = 0.5 * avg_radius ** 2 * angle_rad
+        
+        return {
+            'radius_a': radius_a,
+            'radius_b': radius_b,
+            'avg_radius': avg_radius,
+            'radius_diff': radius_diff,
+            'angle_rad': angle_rad,
+            'angle_deg': angle_deg,
+            'arc_length': arc_length,
+            'chord_length': chord_length,
+            'sector_area': sector_area,
+        }
+    
+    def _measure_arc_length(self, context, edit_objects):
+        """编辑模式 - 弧长/扇形测量"""
+        # 收集选中的顶点（固定使用顶点模式逻辑）
+        vert_refs = []
+        
+        for obj in edit_objects:
+            bm_read = bmesh.from_edit_mesh(obj.data)
+            bm_read.verts.ensure_lookup_table()
+            for v in bm_read.verts:
+                if v.select:
+                    vert_refs.append((obj.name, v.index))
+        
+        if len(vert_refs) != 3:
+            self.report({'WARNING'}, f"弧长测量需要选择恰好3个顶点（圆心+起点+终点），当前选中了{len(vert_refs)}个")
+            return {'CANCELLED'}
+        
+        # 获取世界坐标
+        points = []
+        for obj_name, v_idx in vert_refs:
+            obj = bpy.data.objects.get(obj_name)
+            if obj and obj.type == 'MESH':
+                mesh = obj.data
+                if v_idx < len(mesh.vertices):
+                    world_co = obj.matrix_world @ mesh.vertices[v_idx].co
+                    points.append(world_co.copy())
+        
+        if len(points) != 3:
+            self.report({'WARNING'}, "无法获取顶点坐标")
+            return {'CANCELLED'}
+        
+        center, p_start, p_end = points[0], points[1], points[2]
+        
+        # 计算弧长数据
+        arc_data = self._calc_arc_data(center, p_start, p_end)
+        if arc_data is None:
+            self.report({'WARNING'}, "圆心与端点重合，无法计算弧长")
+            return {'CANCELLED'}
+        
+        if self.create_geometry:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            
+            measure_obj = create_measure_object(
+                context,
+                f"{Config.MEASURE_OBJECT_PREFIX}弧长",
+                [center, p_start, p_end],
+                [(0, 1), (0, 2), (1, 2)]  # 圆心到起点、圆心到终点、弦线
+            )
+            
+            register_annotation(measure_obj.name, AnnotationType.ARC_LENGTH, {
+                'center_vert_idx': 0,
+                'is_bound': True,
+            })
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            measure_obj.select_set(True)
+            context.view_layer.objects.active = measure_obj
+        else:
+            # 注册临时标注（实时跟随顶点）
+            register_annotation("__arc_length__", AnnotationType.ARC_LENGTH, {
+                'vert_refs': vert_refs,
+            })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        # 构建报告信息
+        r = arc_data
+        report_msg = (
+            f"弧长: {r['arc_length']:.6f} m | "
+            f"弧角: {r['angle_deg']:.2f}° | "
+            f"半径: {r['avg_radius']:.6f} m | "
+            f"弦长: {r['chord_length']:.6f} m"
+        )
+        if r['radius_diff'] > Config.COORDINATE_EPSILON:
+            report_msg += f" | ⚠半径偏差: {r['radius_diff']:.6f} m"
+        
+        self.report({'INFO'}, report_msg)
+        return {'FINISHED'}
+    
     # ==================== 物体模式执行 ====================
     
     def execute_object_mode(self, context):
@@ -960,6 +1128,10 @@ class OBJECT_OT_connect_origins(Operator):
             return {'CANCELLED'}
         
         origins = [obj.matrix_world.translation.copy() for obj in selected]
+        
+        # 弧长/扇形模式
+        if self.measure_mode == MeasureMode.ARC_LENGTH:
+            return self._object_mode_arc_length(context, selected, origins)
         
         # 通用距离模式
         if self.measure_mode == MeasureMode.CENTER_DISTANCE:
@@ -1110,6 +1282,68 @@ class OBJECT_OT_connect_origins(Operator):
         else:
             self.report({'INFO'}, f"已连接 {len(origins)} 个原点，总长度: {total_distance:.6f} m（{len(distances)} 段）")
         
+        return {'FINISHED'}
+
+    def _object_mode_arc_length(self, context, selected, origins):
+        """物体模式 - 弧长/扇形测量"""
+        if len(selected) != 3:
+            self.report({'WARNING'}, "弧长测量需要选中恰好3个对象（活动对象=圆心，另2个=弧端点）")
+            return {'CANCELLED'}
+        
+        # 活动对象为圆心
+        active = context.active_object
+        if active not in selected:
+            self.report({'WARNING'}, "活动对象必须在选中对象中（作为圆心）")
+            return {'CANCELLED'}
+        
+        center = active.matrix_world.translation.copy()
+        endpoints = [obj.matrix_world.translation.copy() for obj in selected if obj != active]
+        
+        if len(endpoints) != 2:
+            self.report({'WARNING'}, "需要恰好2个非活动对象作为弧端点")
+            return {'CANCELLED'}
+        
+        p_start, p_end = endpoints[0], endpoints[1]
+        
+        # 计算弧长数据
+        arc_data = self._calc_arc_data(center, p_start, p_end)
+        if arc_data is None:
+            self.report({'WARNING'}, "圆心与端点重合，无法计算弧长")
+            return {'CANCELLED'}
+        
+        # 创建辅助几何体
+        measure_obj = create_measure_object(
+            context,
+            f"{Config.MEASURE_OBJECT_PREFIX}弧长",
+            [center, p_start, p_end],
+            [(0, 1), (0, 2), (1, 2)]
+        )
+        
+        for o in selected:
+            o.select_set(False)
+        measure_obj.select_set(True)
+        context.view_layer.objects.active = measure_obj
+        
+        register_annotation(measure_obj.name, AnnotationType.ARC_LENGTH, {
+            'center_vert_idx': 0,
+            'is_bound': True,
+        })
+        
+        ensure_draw_handler_enabled()
+        refresh_3d_views(context)
+        
+        # 构建报告信息
+        r = arc_data
+        report_msg = (
+            f"弧长: {r['arc_length']:.6f} m | "
+            f"弧角: {r['angle_deg']:.2f}° | "
+            f"半径: {r['avg_radius']:.6f} m | "
+            f"弦长: {r['chord_length']:.6f} m"
+        )
+        if r['radius_diff'] > Config.COORDINATE_EPSILON:
+            report_msg += f" | ⚠半径偏差: {r['radius_diff']:.6f} m"
+        
+        self.report({'INFO'}, report_msg)
         return {'FINISHED'}
 
 
