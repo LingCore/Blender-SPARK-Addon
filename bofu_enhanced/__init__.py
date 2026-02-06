@@ -27,7 +27,7 @@ bl_info = {
     "version": (3, 1, 0),
     "blender": (4, 2, 0),
     "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F",
-    "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注",
+    "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器",
     "warning": "",
     "doc_url": "",
     "tracker_url": "",
@@ -54,6 +54,7 @@ if "config" in locals():
     importlib.reload(operators_export)
     importlib.reload(operators_material)
     importlib.reload(operators_measure)
+    importlib.reload(operators_kinematics)
     importlib.reload(operators_demo)
     importlib.reload(ui)
 
@@ -68,6 +69,7 @@ from . import operators_align
 from . import operators_export
 from . import operators_material
 from . import operators_measure
+from . import operators_kinematics
 from . import operators_demo
 from . import ui
 
@@ -194,6 +196,7 @@ def register():
         operators_export.classes +
         operators_material.classes +
         operators_measure.classes +
+        operators_kinematics.classes +
         operators_demo.classes +
         ui.classes
     )
@@ -343,6 +346,7 @@ def unregister():
         operators_export.classes +
         operators_material.classes +
         operators_measure.classes +
+        operators_kinematics.classes +
         operators_demo.classes +
         ui.classes
     )

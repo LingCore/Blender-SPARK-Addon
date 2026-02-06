@@ -8,8 +8,9 @@ bofu_enhanced/properties.py
 import bpy
 from bpy.types import PropertyGroup
 from bpy.props import (
-    StringProperty, EnumProperty, FloatProperty, 
-    BoolProperty, FloatVectorProperty
+    StringProperty, EnumProperty, FloatProperty,
+    BoolProperty, FloatVectorProperty,
+    IntProperty, CollectionProperty, PointerProperty
 )
 
 
@@ -163,6 +164,151 @@ class TransformPlusProperties(PropertyGroup):
     )
 
 
+# ==================== 运动学属性更新回调 ====================
+
+def update_driver_progress(self, context):
+    """驱动进度更新回调 - 实时求解机构"""
+    if not self.is_active:
+        return
+    try:
+        from .operators_kinematics import solve_and_apply
+        solve_and_apply(context)
+    except Exception as e:
+        print(f"[运动学] 求解更新失败: {e}")
+
+
+# ==================== 运动学属性组 ====================
+
+class KinematicJointProperties(PropertyGroup):
+    """运动学关节属性"""
+    joint_type: EnumProperty(
+        name="关节类型",
+        items=[
+            ('REVOLUTE', '旋转', '铰接/旋转关节 - 两个对象绕共享铰接点相对旋转'),
+            ('PRISMATIC', '平移', '滑动/平移关节 - 两个对象沿指定轴相对平移'),
+        ],
+        default='REVOLUTE',
+    )
+
+    object_a: PointerProperty(
+        name="对象A",
+        type=bpy.types.Object,
+        description="关节连接的第一个对象",
+    )
+
+    object_b: PointerProperty(
+        name="对象B",
+        type=bpy.types.Object,
+        description="关节连接的第二个对象",
+    )
+
+    a_is_ground: BoolProperty(
+        name="A端为地面",
+        description="勾选时，对象A视为固定地面（不运动）",
+        default=False,
+    )
+
+    # 铰接点世界坐标 (旋转关节用)
+    pivot_world: FloatVectorProperty(
+        name="铰接点",
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        subtype='TRANSLATION',
+        precision=6,
+    )
+
+    # 铰接点在各对象局部坐标系中的 2D 坐标（由求解器自动计算）
+    pivot_local_a: FloatVectorProperty(
+        name="A端局部铰接点(2D)",
+        size=2,
+        default=(0.0, 0.0),
+        precision=6,
+    )
+
+    pivot_local_b: FloatVectorProperty(
+        name="B端局部铰接点(2D)",
+        size=2,
+        default=(0.0, 0.0),
+        precision=6,
+    )
+
+    # 平移关节的滑动方向
+    axis_direction: EnumProperty(
+        name="滑动方向",
+        items=[
+            ('X', 'X轴', '沿X轴方向平移'),
+            ('Y', 'Y轴', '沿Y轴方向平移'),
+            ('Z', 'Z轴', '沿Z轴方向平移'),
+        ],
+        default='Y',
+    )
+
+
+class KinematicMechanismProperties(PropertyGroup):
+    """机构运动学属性（场景级别）"""
+    joints: CollectionProperty(
+        type=KinematicJointProperties,
+    )
+
+    active_joint_index: IntProperty(
+        name="活动关节索引",
+        default=0,
+    )
+
+    driver_joint_index: IntProperty(
+        name="驱动关节索引",
+        description="设为驱动的关节在列表中的索引（-1 表示未设置）",
+        default=-1,
+    )
+
+    driver_progress: FloatProperty(
+        name="驱动",
+        description="拖动滑块驱动机构运动（0=起始位置，1=终止位置）",
+        min=0.0,
+        max=1.0,
+        default=0.0,
+        subtype='FACTOR',
+        update=update_driver_progress,
+    )
+
+    driver_min: FloatProperty(
+        name="最小值",
+        description="驱动范围最小值（平移单位:m，旋转单位:°）",
+        default=-0.05,
+        precision=4,
+    )
+
+    driver_max: FloatProperty(
+        name="最大值",
+        description="驱动范围最大值（平移单位:m，旋转单位:°）",
+        default=0.05,
+        precision=4,
+    )
+
+    is_active: BoolProperty(
+        name="机构激活",
+        default=False,
+        description="机构是否处于求解/驱动状态",
+    )
+
+    working_plane: EnumProperty(
+        name="工作平面",
+        description="2D机构的运动平面",
+        items=[
+            ('XY', 'XY 平面', '在XY平面内运动（绕Z轴旋转）'),
+            ('XZ', 'XZ 平面', '在XZ平面内运动（绕Y轴旋转）'),
+            ('YZ', 'YZ 平面', '在YZ平面内运动（绕X轴旋转）'),
+        ],
+        default='XY',
+    )
+
+    # 存储原始变换的 JSON 字符串（激活时自动保存）
+    original_transforms_json: StringProperty(
+        name="原始变换数据",
+        default="",
+    )
+
+
 # ==================== 类注册列表 ====================
 
 classes = (
@@ -171,6 +317,8 @@ classes = (
     AnnotationSettings,
     MiscSettings,
     TransformPlusProperties,
+    KinematicJointProperties,
+    KinematicMechanismProperties,
 )
 
 
@@ -181,6 +329,7 @@ def register_properties():
     bpy.types.Scene.transform_plus_props = bpy.props.PointerProperty(type=TransformPlusProperties)
     bpy.types.Scene.annotation_settings = bpy.props.PointerProperty(type=AnnotationSettings)
     bpy.types.Scene.misc_settings = bpy.props.PointerProperty(type=MiscSettings)
+    bpy.types.Scene.kinematics_props = bpy.props.PointerProperty(type=KinematicMechanismProperties)
 
 
 def unregister_properties():
@@ -191,6 +340,7 @@ def unregister_properties():
         'transform_plus_props',
         'annotation_settings',
         'misc_settings',
+        'kinematics_props',
     ):
         try:
             delattr(bpy.types.Scene, attr)

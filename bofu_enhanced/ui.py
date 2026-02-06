@@ -428,6 +428,233 @@ class TRANSFORM_PT_precise_panel(Panel):
                 sub.prop(obj, "dimensions", index=i, text=f"{axis}  {format_value(value)} m")
 
 
+# ==================== 运动学面板 ====================
+
+class KINEMATICS_UL_joint_list(bpy.types.UIList):
+    """关节列表 UIList"""
+    bl_idname = "KINEMATICS_UL_joint_list"
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
+        props = context.scene.kinematics_props
+        is_driver = (index == props.driver_joint_index)
+
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            row = layout.row(align=True)
+
+            # 关节类型图标
+            if item.joint_type == 'REVOLUTE':
+                type_icon = 'CURVE_BEZCIRCLE'
+                type_label = "R"
+            else:
+                type_icon = 'EMPTY_SINGLE_ARROW'
+                type_label = "P"
+
+            # 驱动标记
+            if is_driver:
+                row.label(text="", icon='PLAY')
+            else:
+                row.label(text="", icon='DOT')
+
+            # 类型标签
+            row.label(text=f"[{type_label}]", icon=type_icon)
+
+            # 对象名称
+            a_label = "地面" if item.a_is_ground else (item.object_a.name if item.object_a else "?")
+            b_label = item.object_b.name if item.object_b else "?"
+            row.label(text=f"{a_label} ↔ {b_label}")
+
+            # 附加信息
+            if item.joint_type == 'REVOLUTE':
+                p = item.pivot_world
+                row.label(text=f"({p[0]:.2f},{p[1]:.2f},{p[2]:.2f})")
+            else:
+                row.label(text=f"↕{item.axis_direction}轴")
+
+        elif self.layout_type == 'GRID':
+            layout.alignment = 'CENTER'
+            layout.label(text="", icon='CONSTRAINT')
+
+
+class KINEMATICS_PT_main_panel(bpy.types.Panel):
+    """机构运动学面板"""
+    bl_label = "机构运动学"
+    bl_idname = "KINEMATICS_PT_main_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "运动学"
+    bl_order = 0
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.kinematics_props
+
+        # ==================== 工作平面 ====================
+        row = layout.row(align=True)
+        row.label(text="工作平面:")
+        row.prop(props, "working_plane", text="")
+        row.enabled = not props.is_active
+
+        layout.separator()
+
+        # ==================== 快速上手提示 ====================
+        if len(props.joints) == 0 and not props.is_active:
+            box = layout.box()
+            col = box.column(align=True)
+            col.label(text="快速上手", icon='LIGHT')
+            col.label(text="  1. 选中对象 → 点 + 添加关节")
+            col.label(text="  2. 选中关节 → 设为驱动")
+            col.label(text="  3. 点击「激活机构」→ 拖动滑块")
+            col.separator()
+            col.label(text="或者一键体验：")
+            row = col.row()
+            row.scale_y = 1.3
+            row.operator("bofu.kinematics_demo",
+                         text="创建演示: 肘节夹钳", icon='PLAY')
+            layout.separator()
+
+        # ==================== 关节列表 ====================
+        row = layout.row()
+        row.template_list(
+            "KINEMATICS_UL_joint_list", "",
+            props, "joints",
+            props, "active_joint_index",
+            rows=3,
+            maxrows=6,
+        )
+
+        # 关节列表操作按钮
+        col = row.column(align=True)
+        col.operator("bofu.add_revolute_joint", icon='CURVE_BEZCIRCLE', text="")
+        col.operator("bofu.add_prismatic_joint", icon='EMPTY_SINGLE_ARROW', text="")
+        col.separator()
+        col.operator("bofu.remove_joint", icon='REMOVE', text="")
+        col.enabled = not props.is_active
+
+        # ==================== 选中关节的详情 ====================
+        if len(props.joints) > 0 and 0 <= props.active_joint_index < len(props.joints):
+            joint = props.joints[props.active_joint_index]
+            box = layout.box()
+            box.enabled = not props.is_active
+
+            # 关节类型和对象
+            row = box.row()
+            type_name = "旋转关节" if joint.joint_type == 'REVOLUTE' else "平移关节"
+            row.label(text=f"{type_name} #{props.active_joint_index}", icon='CONSTRAINT')
+
+            if joint.joint_type == 'REVOLUTE':
+                row = box.row()
+                row.prop(joint, "pivot_world", text="铰接点")
+                box.operator("bofu.update_pivot_from_cursor",
+                             text="铰接点 ← 3D游标", icon='PIVOT_CURSOR')
+            else:
+                box.prop(joint, "axis_direction", text="滑动方向")
+
+            # 设为驱动按钮
+            box.separator()
+            is_driver = (props.active_joint_index == props.driver_joint_index)
+            if is_driver:
+                row = box.row()
+                row.alert = True
+                row.label(text="当前为驱动关节", icon='PLAY')
+            else:
+                box.operator("bofu.set_driver_joint", text="设为驱动", icon='PLAY')
+
+        layout.separator()
+
+        # ==================== 驱动设置 ====================
+        box = layout.box()
+        box.label(text="驱动设置", icon='DRIVER')
+
+        if props.driver_joint_index >= 0 and props.driver_joint_index < len(props.joints):
+            dj = props.joints[props.driver_joint_index]
+            a_name = "地面" if dj.a_is_ground else (dj.object_a.name if dj.object_a else "?")
+            b_name = dj.object_b.name if dj.object_b else "?"
+            jtype = "旋转" if dj.joint_type == 'REVOLUTE' else "平移"
+            box.label(text=f"  [{jtype}] {a_name} ↔ {b_name}", icon='PINNED')
+
+            unit = "°" if dj.joint_type == 'REVOLUTE' else "m"
+
+            row = box.row(align=True)
+            row.enabled = not props.is_active
+            row.prop(props, "driver_min", text=f"最小({unit})")
+            row.prop(props, "driver_max", text=f"最大({unit})")
+        else:
+            box.label(text="  未设置驱动关节", icon='ERROR')
+
+        layout.separator()
+
+        # ==================== 自由度显示 ====================
+        if len(props.joints) > 0:
+            try:
+                from .operators_kinematics import PlanarMechanismSolver, check_numpy
+                if check_numpy():
+                    solver = PlanarMechanismSolver(props.working_plane)
+                    solver.build_from_scene(context)
+                    dof = solver.compute_dof()
+
+                    row = layout.row()
+                    if dof == 1:
+                        row.label(text=f"自由度: {dof}  (正常)", icon='CHECKMARK')
+                    elif dof == 0:
+                        row.alert = True
+                        row.label(text=f"自由度: {dof}  (过约束)", icon='ERROR')
+                    else:
+                        row.alert = True
+                        row.label(text=f"自由度: {dof}  (欠约束)", icon='ERROR')
+
+                    row = layout.row()
+                    row.label(text=f"  活动对象: {len(solver.moving_objects)}")
+                else:
+                    layout.label(text="需要 numpy 计算自由度", icon='INFO')
+            except Exception:
+                pass
+
+        layout.separator()
+
+        # ==================== 控制按钮 ====================
+        if props.is_active:
+            # 激活状态：显示滑块和停用按钮
+            box = layout.box()
+            box.label(text="驱动控制", icon='ANIM')
+
+            # 驱动滑块
+            box.prop(props, "driver_progress", text="驱动进度", slider=True)
+
+            # 显示实际值
+            if props.driver_joint_index >= 0 and props.driver_joint_index < len(props.joints):
+                dj = props.joints[props.driver_joint_index]
+                actual_val = props.driver_min + props.driver_progress * (props.driver_max - props.driver_min)
+                if dj.joint_type == 'REVOLUTE':
+                    box.label(text=f"  当前: {actual_val:.2f}°")
+                else:
+                    box.label(text=f"  当前: {actual_val:.6f} m")
+
+            row = box.row(align=True)
+            row.operator("bofu.reset_to_start", text="回到起点", icon='REW')
+
+            layout.separator()
+            row = layout.row()
+            row.alert = True
+            row.operator("bofu.deactivate_mechanism", text="停用机构（恢复位置）", icon='CANCEL')
+        else:
+            # 未激活：显示激活按钮
+            can_activate = (len(props.joints) > 0 and props.driver_joint_index >= 0)
+            row = layout.row()
+            row.enabled = can_activate
+            row.scale_y = 1.5
+            row.operator("bofu.activate_mechanism", text="激活机构", icon='PLAY')
+
+            if not can_activate and len(props.joints) > 0:
+                layout.label(text="请先设置驱动关节", icon='INFO')
+
+        # ==================== 工具 ====================
+        layout.separator()
+        row = layout.row(align=True)
+        row.enabled = not props.is_active
+        row.operator("bofu.clear_all_joints", text="清除关节", icon='TRASH')
+        row.operator("bofu.kinematics_demo", text="演示场景", icon='PLAY')
+
+
 # ==================== 类注册列表 ====================
 
 classes = (
@@ -442,4 +669,6 @@ classes = (
     BOFU_OT_popup_misc_menu,
     BOFU_OT_popup_material_menu,
     TRANSFORM_PT_precise_panel,
+    KINEMATICS_UL_joint_list,
+    KINEMATICS_PT_main_panel,
 )

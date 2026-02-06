@@ -78,6 +78,23 @@ class Config:
     VECTOR_LENGTH_EPSILON = 1e-8        # 向量长度阈值
     PLANE_EPSILON = 1e-6                # 平面计算阈值
 
+    # ==================== 运动学求解器 ====================
+    class Kinematics:
+        """运动学求解器配置"""
+        MAX_ITERATIONS = 50             # Newton-Raphson 最大迭代次数
+        CONVERGENCE_TOL = 1e-10         # 收敛阈值
+        JACOBIAN_EPSILON = 1e-12        # 雅可比矩阵奇异阈值
+        PIVOT_MATCH_TOL = 0.001         # 铰接点匹配容差 (m)
+
+    class KinematicsColors:
+        """运动学可视化颜色 (RGBA)"""
+        JOINT_REVOLUTE = (0.2, 0.8, 1.0, 0.9)      # 旋转关节标记（青色）
+        JOINT_PRISMATIC = (1.0, 0.6, 0.2, 0.9)      # 平移关节标记（橙色）
+        JOINT_DRIVER = (1.0, 0.3, 0.3, 0.9)         # 驱动关节标记（红色）
+        LABEL_BG = (0.15, 0.15, 0.3, 0.7)           # 标签背景
+        DOF_OK = (0.3, 0.9, 0.3, 1.0)               # 自由度正常（绿色）
+        DOF_ERROR = (1.0, 0.3, 0.3, 1.0)            # 自由度异常（红色）
+
 
 class AnnotationType:
     """标注类型枚举"""
