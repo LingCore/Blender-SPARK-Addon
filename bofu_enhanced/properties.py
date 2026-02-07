@@ -263,10 +263,10 @@ class KinematicMechanismProperties(PropertyGroup):
 
     driver_progress: FloatProperty(
         name="驱动",
-        description="拖动滑块驱动机构运动（0=起始位置，1=终止位置）",
+        description="拖动滑块驱动机构运动（0.5=初始位置，0=左极限，1=右极限）",
         min=0.0,
         max=1.0,
-        default=0.0,
+        default=0.5,
         subtype='FACTOR',
         update=update_driver_progress,
     )

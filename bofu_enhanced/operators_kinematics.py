@@ -770,9 +770,12 @@ def solve_and_apply(context):
     if not props.is_active or props.driver_joint_index < 0:
         return
 
-    # 计算实际驱动值
+    # 计算实际驱动值（分段线性映射：0.5=初始位置，0=左极限，1=右极限）
     progress = props.driver_progress
-    actual_value = props.driver_min + progress * (props.driver_max - props.driver_min)
+    if progress <= 0.5:
+        actual_value = props.driver_min * (1.0 - progress * 2.0)
+    else:
+        actual_value = props.driver_max * (progress * 2.0 - 1.0)
 
     # 如果驱动关节是旋转类型，将度数转为弧度
     if props.driver_joint_index < len(props.joints):
@@ -1124,11 +1127,17 @@ class BOFU_OT_activate_mechanism(Operator):
                         f"约束: {sum(2 for _ in solver.joints_data)}")
             # 仍然允许激活，但给出警告
 
-        # 重置驱动进度
-        props.driver_progress = 0.0
+        # 自动计算驱动极限
+        limit_success, limit_msg = _compute_and_apply_limits(context)
+        if not limit_success:
+            self.report({'WARNING'}, f"极限自动计算失败: {limit_msg}")
+
+        # 重置驱动进度到初始位置（50%）
+        props.driver_progress = 0.5
         props.is_active = True
 
-        self.report({'INFO'}, f"机构已激活（自由度: {dof}，活动对象: {len(solver.moving_objects)}）")
+        limit_info = f"，{limit_msg}" if limit_success else ""
+        self.report({'INFO'}, f"机构已激活（自由度: {dof}，活动对象: {len(solver.moving_objects)}{limit_info}）")
         return {'FINISHED'}
 
 
@@ -1149,7 +1158,7 @@ class BOFU_OT_deactivate_mechanism(Operator):
         restore_original_transforms(context)
 
         props.is_active = False
-        props.driver_progress = 0.0
+        props.driver_progress = 0.5
         invalidate_solver_cache()
 
         # 刷新视图
@@ -1173,8 +1182,8 @@ class BOFU_OT_reset_to_start(Operator):
 
     def execute(self, context):
         props = context.scene.kinematics_props
-        props.driver_progress = 0.0
-        self.report({'INFO'}, "已重置到起始位置")
+        props.driver_progress = 0.5
+        self.report({'INFO'}, "已重置到初始位置")
         return {'FINISHED'}
 
 
@@ -1243,7 +1252,7 @@ class BOFU_OT_clear_all_joints(Operator):
         props.joints.clear()
         props.active_joint_index = 0
         props.driver_joint_index = -1
-        props.driver_progress = 0.0
+        props.driver_progress = 0.5
         invalidate_solver_cache()
 
         self.report({'INFO'}, f"已清除 {count} 个关节")
@@ -1277,7 +1286,7 @@ class BOFU_OT_kinematics_demo(Operator):
 
         props.joints.clear()
         props.driver_joint_index = -1
-        props.driver_progress = 0.0
+        props.driver_progress = 0.5
         invalidate_solver_cache()
 
         # 删除旧演示对象和材质
@@ -1442,8 +1451,48 @@ class BOFU_OT_kinematics_demo(Operator):
         return {'FINISHED'}
 
 
+def _compute_and_apply_limits(context):
+    """
+    计算驱动极限并应用到场景属性（共享逻辑）
+
+    返回: (success: bool, message: str)
+    """
+    props = context.scene.kinematics_props
+
+    # 构建临时求解器
+    solver = PlanarMechanismSolver(props.working_plane)
+    solver.build_from_scene(context)
+
+    # 检查自由度
+    dof = solver.compute_dof()
+    if dof != 1:
+        return False, f"自由度为 {dof}，需要恰好为 1 才能计算极限"
+
+    # 计算极限
+    result = solver.compute_driver_limits()
+    if result is None:
+        return False, "无法计算驱动极限（求解器初始化失败）"
+
+    min_limit, max_limit = result
+
+    # 转换单位：旋转关节 弧度→度
+    driver_joint = props.joints[props.driver_joint_index]
+    if driver_joint.joint_type == 'REVOLUTE':
+        min_limit = math.degrees(min_limit)
+        max_limit = math.degrees(max_limit)
+        unit = "°"
+    else:
+        unit = "m"
+
+    # 设置属性
+    props.driver_min = min_limit
+    props.driver_max = max_limit
+
+    return True, f"驱动极限已计算: {min_limit:.4f}{unit} ~ {max_limit:.4f}{unit}"
+
+
 class BOFU_OT_auto_compute_limits(Operator):
-    """根据机构几何自动计算驱动关节的安全极限范围"""
+    """手动重新计算驱动关节的安全极限范围"""
     bl_idname = "bofu.auto_compute_limits"
     bl_label = "自动计算极限"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1461,49 +1510,12 @@ class BOFU_OT_auto_compute_limits(Operator):
         )
 
     def execute(self, context):
-        props = context.scene.kinematics_props
-
-        # 构建临时求解器
-        solver = PlanarMechanismSolver(props.working_plane)
-        solver.build_from_scene(context)
-
-        # 检查自由度
-        dof = solver.compute_dof()
-        if dof != 1:
-            self.report(
-                {'ERROR'},
-                f"自由度为 {dof}，需要恰好为 1 才能计算极限"
-            )
+        success, msg = _compute_and_apply_limits(context)
+        if not success:
+            self.report({'ERROR'}, msg)
             return {'CANCELLED'}
 
-        # 计算极限
-        result = solver.compute_driver_limits()
-        if result is None:
-            self.report(
-                {'ERROR'},
-                "无法计算驱动极限（求解器初始化失败）"
-            )
-            return {'CANCELLED'}
-
-        min_limit, max_limit = result
-
-        # 转换单位：旋转关节 弧度→度
-        driver_joint = props.joints[props.driver_joint_index]
-        if driver_joint.joint_type == 'REVOLUTE':
-            min_limit = math.degrees(min_limit)
-            max_limit = math.degrees(max_limit)
-            unit = "°"
-        else:
-            unit = "m"
-
-        # 设置属性
-        props.driver_min = min_limit
-        props.driver_max = max_limit
-
-        self.report(
-            {'INFO'},
-            f"驱动极限已计算: {min_limit:.4f}{unit} ~ {max_limit:.4f}{unit}"
-        )
+        self.report({'INFO'}, msg)
         return {'FINISHED'}
 
 

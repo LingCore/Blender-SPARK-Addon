@@ -624,14 +624,18 @@ class KINEMATICS_PT_main_panel(bpy.types.Panel):
             # 显示实际值
             if props.driver_joint_index >= 0 and props.driver_joint_index < len(props.joints):
                 dj = props.joints[props.driver_joint_index]
-                actual_val = props.driver_min + props.driver_progress * (props.driver_max - props.driver_min)
+                progress = props.driver_progress
+                if progress <= 0.5:
+                    actual_val = props.driver_min * (1.0 - progress * 2.0)
+                else:
+                    actual_val = props.driver_max * (progress * 2.0 - 1.0)
                 if dj.joint_type == 'REVOLUTE':
                     box.label(text=f"  当前: {actual_val:.2f}°")
                 else:
                     box.label(text=f"  当前: {actual_val:.6f} m")
 
             row = box.row(align=True)
-            row.operator("bofu.reset_to_start", text="回到起点", icon='REW')
+            row.operator("bofu.reset_to_start", text="回到初始位置", icon='REW')
 
             layout.separator()
             row = layout.row()
