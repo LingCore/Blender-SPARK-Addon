@@ -12,6 +12,39 @@ from bpy.types import Operator
 from .utils import format_value
 
 
+# ==================== 通用复制辅助函数 ====================
+
+def _copy_to_clipboard(operator, context, prop_label, format_fn, mesh_only=False):
+    """通用变换属性复制到剪贴板的辅助函数
+    
+    Args:
+        operator: 调用者操作符（用于 report）
+        context: Blender 上下文
+        prop_label: 属性名称（如 "位置"、"缩放"）
+        format_fn: 格式化函数 (obj) -> list[str]
+        mesh_only: 是否仅限网格对象
+    """
+    if mesh_only:
+        selected = [obj for obj in context.selected_objects if obj.type == 'MESH']
+    else:
+        selected = list(context.selected_objects)
+    
+    if not selected:
+        obj_type = "网格对象" if mesh_only else "对象"
+        operator.report({'WARNING'}, f"未选中任何{obj_type}")
+        return {'CANCELLED'}
+    
+    lines = []
+    for obj in selected:
+        lines.extend(format_fn(obj))
+    
+    context.window_manager.clipboard = "\n".join(lines)
+    operator.report({'INFO'}, f"已复制 {len(selected)} 个对象的{prop_label}")
+    return {'FINISHED'}
+
+
+# ==================== 操作符 ====================
+
 class TRANSFORM_OT_copy_location(Operator):
     """复制位置坐标到剪贴板（支持多选，编辑模式下复制选中元素位置）"""
     bl_idname = "transform.copy_location"
@@ -24,22 +57,13 @@ class TRANSFORM_OT_copy_location(Operator):
             return self.copy_edit_mode_location(context)
         
         # 对象模式：复制对象位置
-        selected = [obj for obj in context.selected_objects]
-        if not selected:
-            self.report({'WARNING'}, "未选中任何对象")
-            return {'CANCELLED'}
-        
-        lines = []
-        for obj in selected:
+        def fmt(obj):
             x = format_value(obj.location.x)
             y = format_value(obj.location.y)
             z = format_value(obj.location.z)
-            lines.append(f"{obj.name}({x}, {y}, {z})")
+            return [f"{obj.name}({x}, {y}, {z})"]
         
-        text = "\n".join(lines)
-        context.window_manager.clipboard = text
-        self.report({'INFO'}, f"已复制 {len(selected)} 个对象的位置")
-        return {'FINISHED'}
+        return _copy_to_clipboard(self, context, "位置", fmt)
     
     def copy_edit_mode_location(self, context):
         """编辑模式下复制选中元素的位置"""
@@ -61,10 +85,8 @@ class TRANSFORM_OT_copy_location(Operator):
                 self.report({'WARNING'}, "未选中任何面")
                 return {'CANCELLED'}
             
-            for i, face in enumerate(selected_faces):
-                # 计算面中心的世界坐标
-                center_local = face.calc_center_median()
-                center_world = mw @ center_local
+            for face in selected_faces:
+                center_world = mw @ face.calc_center_median()
                 x = format_value(center_world.x)
                 y = format_value(center_world.y)
                 z = format_value(center_world.z)
@@ -80,14 +102,12 @@ class TRANSFORM_OT_copy_location(Operator):
                 return {'CANCELLED'}
             
             for edge in selected_edges:
-                # 计算边中点的世界坐标
                 v1_world = mw @ edge.verts[0].co
                 v2_world = mw @ edge.verts[1].co
                 center_world = (v1_world + v2_world) / 2
                 x = format_value(center_world.x)
                 y = format_value(center_world.y)
                 z = format_value(center_world.z)
-                # 同时显示边长
                 length = (v2_world - v1_world).length
                 lines.append(f"边{edge.index}({x}, {y}, {z}) 长度:{format_value(length)}")
             
@@ -101,7 +121,6 @@ class TRANSFORM_OT_copy_location(Operator):
                 return {'CANCELLED'}
             
             for vert in selected_verts:
-                # 计算顶点的世界坐标
                 world_co = mw @ vert.co
                 x = format_value(world_co.x)
                 y = format_value(world_co.y)
@@ -124,33 +143,34 @@ class TRANSFORM_OT_copy_rotation(Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        selected = [obj for obj in context.selected_objects]
-        if not selected:
-            self.report({'WARNING'}, "未选中任何对象")
-            return {'CANCELLED'}
-        
-        lines = []
-        for obj in selected:
-            lines.append(f"{obj.name}")
+        def fmt(obj):
+            result = [f"{obj.name}"]
             if obj.rotation_mode == 'QUATERNION':
-                lines.append(f"  W {format_value(obj.rotation_quaternion[0])}")
-                lines.append(f"  X {format_value(obj.rotation_quaternion[1])}")
-                lines.append(f"  Y {format_value(obj.rotation_quaternion[2])}")
-                lines.append(f"  Z {format_value(obj.rotation_quaternion[3])}")
+                q = obj.rotation_quaternion
+                result.extend([
+                    f"  W {format_value(q[0])}",
+                    f"  X {format_value(q[1])}",
+                    f"  Y {format_value(q[2])}",
+                    f"  Z {format_value(q[3])}",
+                ])
             elif obj.rotation_mode == 'AXIS_ANGLE':
-                lines.append(f"  W {format_value(obj.rotation_axis_angle[0], True)}")
-                lines.append(f"  X {format_value(obj.rotation_axis_angle[1])}")
-                lines.append(f"  Y {format_value(obj.rotation_axis_angle[2])}")
-                lines.append(f"  Z {format_value(obj.rotation_axis_angle[3])}")
+                aa = obj.rotation_axis_angle
+                result.extend([
+                    f"  W {format_value(aa[0], True)}",
+                    f"  X {format_value(aa[1])}",
+                    f"  Y {format_value(aa[2])}",
+                    f"  Z {format_value(aa[3])}",
+                ])
             else:
-                lines.append(f"  X {format_value(obj.rotation_euler.x, True)}")
-                lines.append(f"  Y {format_value(obj.rotation_euler.y, True)}")
-                lines.append(f"  Z {format_value(obj.rotation_euler.z, True)}")
+                e = obj.rotation_euler
+                result.extend([
+                    f"  X {format_value(e.x, True)}",
+                    f"  Y {format_value(e.y, True)}",
+                    f"  Z {format_value(e.z, True)}",
+                ])
+            return result
         
-        text = "\n".join(lines)
-        context.window_manager.clipboard = text
-        self.report({'INFO'}, f"已复制 {len(selected)} 个对象的旋转")
-        return {'FINISHED'}
+        return _copy_to_clipboard(self, context, "旋转", fmt)
 
 
 class TRANSFORM_OT_copy_scale(Operator):
@@ -160,22 +180,15 @@ class TRANSFORM_OT_copy_scale(Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        selected = [obj for obj in context.selected_objects]
-        if not selected:
-            self.report({'WARNING'}, "未选中任何对象")
-            return {'CANCELLED'}
+        def fmt(obj):
+            return [
+                f"{obj.name}",
+                f"  X {format_value(obj.scale.x)}",
+                f"  Y {format_value(obj.scale.y)}",
+                f"  Z {format_value(obj.scale.z)}",
+            ]
         
-        lines = []
-        for obj in selected:
-            lines.append(f"{obj.name}")
-            lines.append(f"  X {format_value(obj.scale.x)}")
-            lines.append(f"  Y {format_value(obj.scale.y)}")
-            lines.append(f"  Z {format_value(obj.scale.z)}")
-        
-        text = "\n".join(lines)
-        context.window_manager.clipboard = text
-        self.report({'INFO'}, f"已复制 {len(selected)} 个对象的缩放")
-        return {'FINISHED'}
+        return _copy_to_clipboard(self, context, "缩放", fmt)
 
 
 class TRANSFORM_OT_copy_dimensions(Operator):
@@ -185,22 +198,15 @@ class TRANSFORM_OT_copy_dimensions(Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        selected = [obj for obj in context.selected_objects if obj.type == 'MESH']
-        if not selected:
-            self.report({'WARNING'}, "未选中任何网格对象")
-            return {'CANCELLED'}
+        def fmt(obj):
+            return [
+                f"{obj.name}",
+                f"  X {format_value(obj.dimensions.x)} m",
+                f"  Y {format_value(obj.dimensions.y)} m",
+                f"  Z {format_value(obj.dimensions.z)} m",
+            ]
         
-        lines = []
-        for obj in selected:
-            lines.append(f"{obj.name}")
-            lines.append(f"  X {format_value(obj.dimensions.x)} m")
-            lines.append(f"  Y {format_value(obj.dimensions.y)} m")
-            lines.append(f"  Z {format_value(obj.dimensions.z)} m")
-        
-        text = "\n".join(lines)
-        context.window_manager.clipboard = text
-        self.report({'INFO'}, f"已复制 {len(selected)} 个对象的尺寸")
-        return {'FINISHED'}
+        return _copy_to_clipboard(self, context, "尺寸", fmt, mesh_only=True)
 
 
 # ==================== 类注册列表 ====================

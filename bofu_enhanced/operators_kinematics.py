@@ -25,18 +25,16 @@ from .config import Config
 
 # ==================== numpy 检测 ====================
 
-_numpy_available = None
+try:
+    import numpy as np
+    _numpy_available = True
+except ImportError:
+    np = None
+    _numpy_available = False
 
 
 def check_numpy():
     """检查 numpy 是否可用"""
-    global _numpy_available
-    if _numpy_available is None:
-        try:
-            import numpy
-            _numpy_available = True
-        except ImportError:
-            _numpy_available = False
     return _numpy_available
 
 
@@ -271,7 +269,6 @@ class PlanarMechanismSolver:
 
     def _build_state_vector(self):
         """构建初始状态向量"""
-        import numpy as np
         n = len(self.moving_objects)
         q = np.zeros(3 * n)
         for mo in self.moving_objects:
@@ -294,8 +291,6 @@ class PlanarMechanismSolver:
 
         返回: (Phi, J)
         """
-        import numpy as np
-
         n_obj = len(self.moving_objects)
         n_state = 3 * n_obj
 
@@ -524,8 +519,6 @@ class PlanarMechanismSolver:
         """
         if not check_numpy():
             return None
-
-        import numpy as np
 
         n_obj = len(self.moving_objects)
         if n_obj == 0:

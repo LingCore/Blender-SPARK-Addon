@@ -137,7 +137,11 @@ def save_annotations_handler(dummy):
 
 @persistent
 def load_annotations_handler(dummy):
-    """加载文件时自动加载标注数据"""
+    """加载文件时自动加载标注数据，并清理旧缓存"""
+    # 清除旧文件的材质缓存和求解器缓存
+    operators_material.clear_material_cache()
+    operators_kinematics.invalidate_solver_cache()
+    
     try:
         # 检查偏好设置
         addon_prefs = bpy.context.preferences.addons.get('bofu_enhanced')
@@ -334,6 +338,9 @@ def unregister():
     
     # 8. 清除材质同步缓存
     operators_material.clear_material_cache()
+    
+    # 8.1 清除运动学求解器缓存
+    operators_kinematics.invalidate_solver_cache()
     
     # 9. 注销属性
     properties.unregister_properties()

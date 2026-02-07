@@ -718,33 +718,13 @@ def unified_draw_callback():
             continue
         
         annotation_type = data.get('type', '')
-        
-        if annotation_type == AnnotationType.DISTANCE:
-            draw_distance_annotation(obj_name, data, region, rv3d)
-        elif annotation_type == AnnotationType.DISTANCE_TEMP:
-            draw_distance_temp_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.ANGLE:
-            draw_angle_annotation(obj_name, data, region, rv3d)
-        elif annotation_type == AnnotationType.ANGLE_TEMP:
-            draw_angle_temp_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.EDGE_ANGLE:
-            draw_edge_angle_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.EDGE_LENGTH:
-            draw_edge_length_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.VERTEX_ANGLES:
-            draw_vertex_angles_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.LINE_ANGLES:
-            draw_line_angles_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.RADIUS:
-            draw_radius_annotation(obj_name, data, region, rv3d)
-        elif annotation_type == AnnotationType.RADIUS_TEMP:
-            draw_radius_temp_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.FACE_AREA:
-            draw_face_area_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.PERIMETER:
-            draw_perimeter_annotation(data, region, rv3d)
-        elif annotation_type == AnnotationType.ARC_LENGTH:
-            draw_arc_length_annotation(obj_name, data, region, rv3d)
+        entry = _DRAW_DISPATCH.get(annotation_type)
+        if entry:
+            draw_fn, needs_name = entry
+            if needs_name:
+                draw_fn(obj_name, data, region, rv3d)
+            else:
+                draw_fn(data, region, rv3d)
 
 
 # ==================== 绘制辅助函数（使用 LabelRenderer）====================
@@ -1542,6 +1522,26 @@ def draw_arc_length_annotation(obj_name, data, region, rv3d):
         screen_pos = location_3d_to_region_2d(region, rv3d, label_pos)
         if screen_pos:
             draw_arc_length_label(screen_pos, arc_data)
+
+
+# ==================== 绘制分派表 ====================
+# (draw_function, needs_obj_name) — 用于 unified_draw_callback 的高效分派
+
+_DRAW_DISPATCH = {
+    AnnotationType.DISTANCE:      (draw_distance_annotation, True),
+    AnnotationType.DISTANCE_TEMP: (draw_distance_temp_annotation, False),
+    AnnotationType.ANGLE:         (draw_angle_annotation, True),
+    AnnotationType.ANGLE_TEMP:    (draw_angle_temp_annotation, False),
+    AnnotationType.EDGE_ANGLE:    (draw_edge_angle_annotation, False),
+    AnnotationType.EDGE_LENGTH:   (draw_edge_length_annotation, False),
+    AnnotationType.VERTEX_ANGLES: (draw_vertex_angles_annotation, False),
+    AnnotationType.LINE_ANGLES:   (draw_line_angles_annotation, False),
+    AnnotationType.RADIUS:        (draw_radius_annotation, True),
+    AnnotationType.RADIUS_TEMP:   (draw_radius_temp_annotation, False),
+    AnnotationType.FACE_AREA:     (draw_face_area_annotation, False),
+    AnnotationType.PERIMETER:     (draw_perimeter_annotation, False),
+    AnnotationType.ARC_LENGTH:    (draw_arc_length_annotation, True),
+}
 
 
 # ==================== 标注管理操作符 ====================

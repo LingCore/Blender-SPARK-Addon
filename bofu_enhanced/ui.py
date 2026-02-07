@@ -59,6 +59,18 @@ class VIEW3D_MT_PIE_bofu_tools(Menu):
         pie.operator("bofu.popup_align_menu", text="对齐工具", icon='ALIGN_CENTER')
 
 
+def _draw_material_sync_ui(layout, context):
+    """绘制材质同步开关 UI（共享辅助函数）"""
+    if hasattr(context.scene, 'misc_settings'):
+        settings = context.scene.misc_settings
+        icon = 'CHECKBOX_HLT' if settings.material_sync_enabled else 'CHECKBOX_DEHLT'
+        layout.prop(settings, "material_sync_enabled", icon=icon)
+        if settings.material_sync_enabled:
+            row = layout.row()
+            row.alert = True
+            row.label(text="颜色/金属度/糙度 自动同步中", icon='LINKED')
+
+
 class VIEW3D_MT_material_tools(Menu):
     """材质工具子菜单"""
     bl_idname = "VIEW3D_MT_material_tools"
@@ -81,14 +93,7 @@ class VIEW3D_MT_material_tools(Menu):
         layout.separator()
         
         # 材质同步开关
-        if hasattr(context.scene, 'misc_settings'):
-            settings = context.scene.misc_settings
-            icon = 'CHECKBOX_HLT' if settings.material_sync_enabled else 'CHECKBOX_DEHLT'
-            layout.prop(settings, "material_sync_enabled", icon=icon)
-            if settings.material_sync_enabled:
-                row = layout.row()
-                row.alert = True
-                row.label(text="颜色/金属度/糙度 自动同步中", icon='LINKED')
+        _draw_material_sync_ui(layout, context)
 
 
 class VIEW3D_MT_misc_tools(Menu):
@@ -100,15 +105,7 @@ class VIEW3D_MT_misc_tools(Menu):
         layout = self.layout
         
         # 材质同步开关
-        if hasattr(context.scene, 'misc_settings'):
-            settings = context.scene.misc_settings
-            icon = 'CHECKBOX_HLT' if settings.material_sync_enabled else 'CHECKBOX_DEHLT'
-            row = layout.row()
-            row.prop(settings, "material_sync_enabled", icon=icon)
-            if settings.material_sync_enabled:
-                row = layout.row()
-                row.alert = True  # 使用警告色（橙黄色）更显眼
-                row.label(text="颜色/金属度/糙度 自动同步中", icon='LINKED')
+        _draw_material_sync_ui(layout, context)
 
 
 class VIEW3D_MT_annotation_manage(Menu):

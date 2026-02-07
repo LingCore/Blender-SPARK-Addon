@@ -14,6 +14,9 @@ from mathutils import Vector
 from .config import Config
 from .utils import AlignmentHelper
 
+# 轴名称到索引的映射常量
+AXIS_INDEX = {'X': 0, 'Y': 1, 'Z': 2}
+
 
 # ==================== 对象模式对齐操作符 ====================
 
@@ -156,7 +159,7 @@ class OBJECT_OT_align_objects(Operator):
             target_ref = 'BBOX_TOP'
         
         target_point = AlignmentHelper.get_reference_point(active, target_ref, self.align_axis)
-        axis_idx = {'X': 0, 'Y': 1, 'Z': 2}.get(self.align_axis, 2)
+        axis_idx = AXIS_INDEX.get(self.align_axis, 2)
         target_coord = target_point[axis_idx]
         
         aligned_count = 0
@@ -196,7 +199,7 @@ class OBJECT_OT_quick_align(Operator):
             return {'CANCELLED'}
         
         target_point = AlignmentHelper.get_reference_point(active, 'BBOX_BOTTOM', self.align_axis)
-        axis_idx = {'X': 0, 'Y': 1, 'Z': 2}.get(self.align_axis, 2)
+        axis_idx = AXIS_INDEX.get(self.align_axis, 2)
         target_coord = target_point[axis_idx]
         
         for obj in objects_to_align:
@@ -267,7 +270,7 @@ class OBJECT_OT_distribute_objects(Operator):
             self.report({'WARNING'}, "请至少选择2个对象")
             return {'CANCELLED'}
         
-        axis_idx = {'X': 0, 'Y': 1, 'Z': 2}.get(self.distribute_axis, 0)
+        axis_idx = AXIS_INDEX.get(self.distribute_axis, 0)
         
         def get_pos(obj):
             ref = AlignmentHelper.get_reference_point(obj, self.ref_point, self.distribute_axis)
@@ -491,9 +494,7 @@ class MESH_OT_align_vertices(Operator):
         layout.separator()
         obj = context.edit_object
         if obj:
-            bm = bmesh.from_edit_mesh(obj.data)
-            selected_verts = [v for v in bm.verts if v.select]
-            layout.label(text=f"选中 {len(selected_verts)} 个顶点", icon='INFO')
+            layout.label(text=f"选中 {obj.data.total_vert_sel} 个顶点", icon='INFO')
     
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=280)
@@ -516,7 +517,7 @@ class MESH_OT_align_vertices(Operator):
             self.report({'WARNING'}, "请先选择顶点")
             return {'CANCELLED'}
         
-        axis_idx = {'X': 0, 'Y': 1, 'Z': 2}.get(self.align_axis, 2)
+        axis_idx = AXIS_INDEX.get(self.align_axis, 2)
         mw = obj.matrix_world
         mw_inv = mw.inverted()
         
@@ -647,7 +648,7 @@ class MESH_OT_quick_align_axis(Operator):
             self.report({'WARNING'}, "请先选择顶点")
             return {'CANCELLED'}
         
-        axis_idx = {'X': 0, 'Y': 1, 'Z': 2}.get(self.axis, 2)
+        axis_idx = AXIS_INDEX.get(self.axis, 2)
         
         if self.target == 'ACTIVE':
             if bm.select_history and bm.select_history.active:
@@ -735,7 +736,7 @@ class MESH_OT_flatten_selection(Operator):
             return {'CANCELLED'}
         
         if self.flatten_mode == 'AXIS':
-            axis_idx = {'X': 0, 'Y': 1, 'Z': 2}.get(self.axis, 2)
+            axis_idx = AXIS_INDEX.get(self.axis, 2)
             
             if self.use_center:
                 coords = [v.co[axis_idx] for v in selected_verts]
