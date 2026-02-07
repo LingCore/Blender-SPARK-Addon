@@ -1315,15 +1315,6 @@ class BOFU_OT_kinematics_demo(Operator):
             bm.free()
             return mesh
 
-        def make_sphere(name, radius=0.004):
-            """创建铰接点标记小球"""
-            mesh = bpy.data.meshes.new(name)
-            bm = bmesh.new()
-            bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=6, radius=radius)
-            bm.to_mesh(mesh)
-            bm.free()
-            return mesh
-
         def spawn(mesh, location, material):
             """创建对象并放入场景"""
             obj = bpy.data.objects.new(mesh.name, mesh)
@@ -1338,8 +1329,6 @@ class BOFU_OT_kinematics_demo(Operator):
         mat_clamp  = make_material("运动学_夹具", (0.90, 0.50, 0.10, 1.0))
         mat_link   = make_material("运动学_连杆", (0.70, 0.70, 0.70, 1.0))
         mat_piston = make_material("运动学_活塞", (0.75, 0.78, 0.82, 1.0))
-        mat_base   = make_material("运动学_底座", (0.25, 0.25, 0.25, 1.0))
-        mat_pivot  = make_material("运动学_铰点", (1.00, 0.20, 0.20, 1.0))
 
         # ── 4. 机构铰接点坐标（XY 平面）──
         #
@@ -1360,10 +1349,6 @@ class BOFU_OT_kinematics_demo(Operator):
         C = (0.10, 0.0,  0.0)   # 连杆↔活塞 铰点
 
         # ── 5. 创建对象 ──
-        # 底座（纯视觉参考，不参与运动学）
-        spawn(make_box(DEMO_PREFIX + "底座", 0.16, 0.006, 0.03, ox=0.05, oy=0.135),
-              (0, 0, 0), mat_base)
-
         # 夹具（橙色）：origin 在铰点 A，向右延伸到 B
         clamp = spawn(
             make_box(DEMO_PREFIX + "夹具", 0.13, 0.022, 0.01, ox=0.055),
@@ -1378,12 +1363,6 @@ class BOFU_OT_kinematics_demo(Operator):
         piston = spawn(
             make_box(DEMO_PREFIX + "活塞", 0.030, 0.08, 0.015, oy=-0.01),
             (0.10, -0.03, 0), mat_piston)
-
-        # 铰点标记小球（红色）
-        for pos, label in [(A, "铰点A_地面↔夹具"),
-                           (B, "铰点B_夹具↔连杆"),
-                           (C, "铰点C_连杆↔活塞")]:
-            spawn(make_sphere(DEMO_PREFIX + label), pos, mat_pivot)
 
         # ── 6. 工作平面 ──
         props.working_plane = 'XY'
@@ -1423,10 +1402,15 @@ class BOFU_OT_kinematics_demo(Operator):
 
         # ── 8. 驱动配置 ──
         props.driver_joint_index = 3   # 关节4 = 活塞平移
-        props.driver_min = -0.04       # 向下 4cm
-        props.driver_max = 0.04        # 向上 4cm
 
         invalidate_solver_cache()
+
+        # 自动计算驱动极限
+        success, msg = _compute_and_apply_limits(context)
+        if not success:
+            # 回退到安全默认值
+            props.driver_min = -0.04
+            props.driver_max = 0.04
 
         # ── 9. 选中并聚焦 ──
         bpy.ops.object.select_all(action='DESELECT')
