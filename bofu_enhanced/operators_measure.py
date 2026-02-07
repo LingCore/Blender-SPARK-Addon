@@ -18,7 +18,7 @@ from bpy.props import EnumProperty, BoolProperty, FloatProperty
 from mathutils import Vector
 
 from .config import Config, MeasureMode, AnnotationType
-from .utils import get_unique_measure_name
+from .utils import get_unique_measure_name, calc_arc_data
 from .annotation import register_annotation, ensure_draw_handler_enabled
 
 
@@ -994,50 +994,8 @@ class OBJECT_OT_connect_origins(Operator):
     # ==================== 弧长/扇形测量 ====================
     
     def _calc_arc_data(self, center, p_start, p_end):
-        """
-        计算弧长相关数据
-        
-        参数:
-            center: 圆心世界坐标
-            p_start: 弧起点世界坐标
-            p_end: 弧终点世界坐标
-        
-        返回: dict 包含所有弧长测量结果
-        """
-        vec_a = p_start - center
-        vec_b = p_end - center
-        radius_a = vec_a.length
-        radius_b = vec_b.length
-        avg_radius = (radius_a + radius_b) / 2
-        radius_diff = abs(radius_a - radius_b)
-        
-        # 弧度角
-        len_a = vec_a.length
-        len_b = vec_b.length
-        if len_a < Config.VECTOR_LENGTH_EPSILON or len_b < Config.VECTOR_LENGTH_EPSILON:
-            return None
-        
-        dot = vec_a.normalized().dot(vec_b.normalized())
-        dot = max(-1.0, min(1.0, dot))
-        angle_rad = math.acos(dot)
-        angle_deg = math.degrees(angle_rad)
-        
-        # 弧长、弦长、扇形面积
-        arc_length = avg_radius * angle_rad
-        chord_length = (p_end - p_start).length
-        sector_area = 0.5 * avg_radius ** 2 * angle_rad
-        
-        return {
-            'radius_a': radius_a,
-            'radius_b': radius_b,
-            'avg_radius': avg_radius,
-            'radius_diff': radius_diff,
-            'angle_rad': angle_rad,
-            'angle_deg': angle_deg,
-            'arc_length': arc_length,
-            'chord_length': chord_length,
-            'sector_area': sector_area,
-        }
+        """计算弧长相关数据（委托给共享函数）"""
+        return calc_arc_data(center, p_start, p_end, epsilon=Config.VECTOR_LENGTH_EPSILON)
     
     def _measure_arc_length(self, context, edit_objects):
         """编辑模式 - 弧长/扇形测量"""

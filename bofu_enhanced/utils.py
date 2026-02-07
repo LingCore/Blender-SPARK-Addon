@@ -100,6 +100,41 @@ def delete_side_by_plane_world(obj, plane_point: Vector, plane_normal_unit: Vect
 
 # ==================== 实时数据获取函数（编辑模式支持）====================
 
+def _get_vert_world_coords(obj, vert_indices):
+    """
+    内部辅助：获取一个或多个顶点的世界坐标（自动处理编辑/物体模式）
+    
+    参数:
+        obj: Blender 网格对象
+        vert_indices: 顶点索引列表
+    
+    返回: 世界坐标列表（与 vert_indices 等长），失败的元素为 None
+    """
+    results = [None] * len(vert_indices)
+    mat = obj.matrix_world
+    
+    if obj.mode == 'EDIT':
+        try:
+            bm = bmesh.from_edit_mesh(obj.data)
+            if not bm.is_valid:
+                return results
+            bm.verts.ensure_lookup_table()
+            n = len(bm.verts)
+            for i, idx in enumerate(vert_indices):
+                if idx < n:
+                    results[i] = mat @ bm.verts[idx].co.copy()
+        except (ReferenceError, IndexError):
+            return results
+    else:
+        mesh = obj.data
+        n = len(mesh.vertices)
+        for i, idx in enumerate(vert_indices):
+            if idx < n:
+                results[i] = mat @ mesh.vertices[idx].co
+    
+    return results
+
+
 def get_vertex_world_coord_realtime(obj_name, vert_idx):
     """
     获取顶点的世界坐标（实时，支持编辑模式）
@@ -109,23 +144,7 @@ def get_vertex_world_coord_realtime(obj_name, vert_idx):
     obj = bpy.data.objects.get(obj_name)
     if not obj or obj.type != 'MESH':
         return None
-    
-    if obj.mode == 'EDIT':
-        try:
-            bm = bmesh.from_edit_mesh(obj.data)
-            if not bm.is_valid:
-                return None
-            if vert_idx < len(bm.verts):
-                bm.verts.ensure_lookup_table()
-                return obj.matrix_world @ bm.verts[vert_idx].co.copy()
-        except (ReferenceError, IndexError):
-            return None
-    else:
-        mesh = obj.data
-        if vert_idx < len(mesh.vertices):
-            return obj.matrix_world @ mesh.vertices[vert_idx].co
-    
-    return None
+    return _get_vert_world_coords(obj, [vert_idx])[0]
 
 
 def get_edge_world_coords_realtime(obj_name, v1_idx, v2_idx):
@@ -137,27 +156,8 @@ def get_edge_world_coords_realtime(obj_name, v1_idx, v2_idx):
     obj = bpy.data.objects.get(obj_name)
     if not obj or obj.type != 'MESH':
         return None, None
-    
-    if obj.mode == 'EDIT':
-        try:
-            bm = bmesh.from_edit_mesh(obj.data)
-            if not bm.is_valid:
-                return None, None
-            if v1_idx < len(bm.verts) and v2_idx < len(bm.verts):
-                bm.verts.ensure_lookup_table()
-                v1 = obj.matrix_world @ bm.verts[v1_idx].co.copy()
-                v2 = obj.matrix_world @ bm.verts[v2_idx].co.copy()
-                return v1, v2
-        except (ReferenceError, IndexError):
-            return None, None
-    else:
-        mesh = obj.data
-        if v1_idx < len(mesh.vertices) and v2_idx < len(mesh.vertices):
-            v1 = obj.matrix_world @ mesh.vertices[v1_idx].co
-            v2 = obj.matrix_world @ mesh.vertices[v2_idx].co
-            return v1, v2
-    
-    return None, None
+    coords = _get_vert_world_coords(obj, [v1_idx, v2_idx])
+    return coords[0], coords[1]
 
 
 # ==================== 对齐辅助类 ====================
@@ -276,3 +276,49 @@ def get_unique_measure_name(base_name):
     while f"{base_name}_{index:03d}" in bpy.data.objects:
         index += 1
     return f"{base_name}_{index:03d}"
+
+
+# ==================== 弧长/扇形计算公共函数 ====================
+
+def calc_arc_data(center, p_start, p_end, epsilon=1e-8):
+    """
+    计算弧长相关数据（供 operators_measure 和 annotation 共用）
+    
+    参数:
+        center: 圆心世界坐标
+        p_start: 弧起点世界坐标
+        p_end: 弧终点世界坐标
+        epsilon: 向量长度阈值
+    
+    返回: dict 包含弧长测量结果，或 None
+    """
+    vec_a = p_start - center
+    vec_b = p_end - center
+    radius_a = vec_a.length
+    radius_b = vec_b.length
+    avg_radius = (radius_a + radius_b) / 2
+    radius_diff = abs(radius_a - radius_b)
+    
+    if vec_a.length < epsilon or vec_b.length < epsilon:
+        return None
+    
+    dot = vec_a.normalized().dot(vec_b.normalized())
+    dot = max(-1.0, min(1.0, dot))
+    angle_rad = math.acos(dot)
+    angle_deg = math.degrees(angle_rad)
+    
+    arc_length = avg_radius * angle_rad
+    chord_length = (p_end - p_start).length
+    sector_area = 0.5 * avg_radius ** 2 * angle_rad
+    
+    return {
+        'radius_a': radius_a,
+        'radius_b': radius_b,
+        'avg_radius': avg_radius,
+        'radius_diff': radius_diff,
+        'angle_rad': angle_rad,
+        'angle_deg': angle_deg,
+        'arc_length': arc_length,
+        'chord_length': chord_length,
+        'sector_area': sector_area,
+    }

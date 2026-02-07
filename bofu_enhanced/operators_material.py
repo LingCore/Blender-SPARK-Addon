@@ -583,6 +583,8 @@ class MATERIAL_PT_quick_preview(bpy.types.Panel):
 
 # 存储材质的上一次状态，用于检测变化
 _material_cache = {}
+_material_cache_cleanup_counter = 0  # 清理计数器，避免每次都清理
+_CACHE_CLEANUP_INTERVAL = 50  # 每 50 次缓存操作执行一次清理
 
 # 防止递归同步的标志
 _syncing = False
@@ -599,11 +601,30 @@ def get_principled_bsdf(material):
     return None
 
 
+def _purge_stale_cache_entries():
+    """清除缓存中已不存在的材质条目，防止内存泄漏"""
+    global _material_cache
+    if not _material_cache:
+        return
+    existing_names = {mat.name for mat in bpy.data.materials}
+    stale_keys = [k for k in _material_cache if k not in existing_names]
+    for k in stale_keys:
+        del _material_cache[k]
+
+
 def cache_material_state(material):
     """缓存材质状态"""
+    global _material_cache_cleanup_counter
+    
     principled = get_principled_bsdf(material)
     if not principled:
         return
+    
+    # 定期清理已删除/重命名材质的缓存条目
+    _material_cache_cleanup_counter += 1
+    if _material_cache_cleanup_counter >= _CACHE_CLEANUP_INTERVAL:
+        _material_cache_cleanup_counter = 0
+        _purge_stale_cache_entries()
     
     # 缓存视图显示参数（包含 Alpha）
     viewport_color = tuple(material.diffuse_color[:4])
@@ -697,8 +718,9 @@ def sync_material_auto(material):
 
 def clear_material_cache():
     """清除材质缓存"""
-    global _material_cache
+    global _material_cache, _material_cache_cleanup_counter
     _material_cache = {}
+    _material_cache_cleanup_counter = 0
 
 
 # ==================== 类注册列表 ====================

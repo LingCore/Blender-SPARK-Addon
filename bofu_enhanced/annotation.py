@@ -22,7 +22,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from .config import Config, AnnotationType
 from .render_utils import LabelRenderer, get_font_size, get_bg_color, ShaderCache
-from .utils import get_vertex_world_coord_realtime, get_edge_world_coords_realtime
+from .utils import get_vertex_world_coord_realtime, get_edge_world_coords_realtime, calc_arc_data
 
 
 # ==================== 全局状态 ====================
@@ -1426,34 +1426,8 @@ def draw_arc_length_label(screen_pos, arc_data):
 
 
 def _calc_arc_data_from_points(center, p_start, p_end):
-    """从3个世界坐标点计算弧长数据"""
-    vec_a = p_start - center
-    vec_b = p_end - center
-    radius_a = vec_a.length
-    radius_b = vec_b.length
-    avg_radius = (radius_a + radius_b) / 2
-    radius_diff = abs(radius_a - radius_b)
-    
-    if vec_a.length < 1e-8 or vec_b.length < 1e-8:
-        return None
-    
-    dot = vec_a.normalized().dot(vec_b.normalized())
-    dot = max(-1.0, min(1.0, dot))
-    angle_rad = math.acos(dot)
-    angle_deg = math.degrees(angle_rad)
-    
-    arc_length = avg_radius * angle_rad
-    chord_length = (p_end - p_start).length
-    sector_area = 0.5 * avg_radius ** 2 * angle_rad
-    
-    return {
-        'avg_radius': avg_radius,
-        'radius_diff': radius_diff,
-        'angle_deg': angle_deg,
-        'arc_length': arc_length,
-        'chord_length': chord_length,
-        'sector_area': sector_area,
-    }
+    """从3个世界坐标点计算弧长数据（委托给共享函数）"""
+    return calc_arc_data(center, p_start, p_end)
 
 
 def draw_arc_length_annotation(obj_name, data, region, rv3d):
