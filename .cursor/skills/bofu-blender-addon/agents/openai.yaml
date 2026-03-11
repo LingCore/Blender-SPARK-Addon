@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bofu Blender Addon"
+  short_description: "在本仓库中开发和维护 bofu_enhanced Blender 插件。"
+  default_prompt: "使用这个 skill 处理本仓库里的 Blender 插件开发任务，并遵循既有模块边界、注册模式、UI 入口、打包流程和手工验证清单。"
