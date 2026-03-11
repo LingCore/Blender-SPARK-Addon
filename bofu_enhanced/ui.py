@@ -107,6 +107,21 @@ class VIEW3D_MT_misc_tools(Menu):
     def draw(self, context):
         layout = self.layout
         
+        # 所见即所得视口渲染
+        layout.operator(
+            "bofu.viewport_render_wysiwyg",
+            text="渲染视口预览（所见即所得）",
+            icon='RESTRICT_RENDER_OFF',
+        )
+        
+        from .operators_render import has_saved_settings
+        if has_saved_settings():
+            row = layout.row()
+            row.alert = True
+            row.operator("bofu.restore_color_settings", icon='LOOP_BACK')
+        
+        layout.separator()
+        
         # 材质同步开关
         _draw_material_sync_ui(layout, context)
 

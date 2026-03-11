@@ -5,7 +5,7 @@
 > **Blender 版本要求**: 4.2+  
 > **分类**: 3D View
 
-一个功能丰富的 Blender 增强插件，提供智能测量标注、批量材质管理、对齐工具、镜像增强、批量导出、高精度变换显示、2D 机构运动学求解器等功能。
+一个功能丰富的 Blender 增强插件，提供智能测量标注、批量材质管理、对齐工具、镜像增强、批量导出、高精度变换显示、2D 机构运动学求解器、所见即所得视口渲染等功能。
 
 ---
 
@@ -31,6 +31,7 @@
   - [材质管理 operators\_material.py](#材质管理-operators_materialpy)
   - [智能测量 operators\_measure.py](#智能测量-operators_measurepy)
   - [运动学求解 operators\_kinematics.py](#运动学求解-operators_kinematicspy)
+  - [视口渲染 operators\_render.py](#视口渲染-operators_renderpy)
   - [演示场景 operators\_demo.py](#演示场景-operators_demopy)
 - [关键系统深入分析](#关键系统深入分析)
   - [标注系统架构](#标注系统架构)
@@ -70,6 +71,7 @@ blender插件/
     ├── operators_material.py                    # 批量材质、清理、同步
     ├── operators_measure.py                     # 智能测量（多模式）
     ├── operators_kinematics.py                  # 2D 机构运动学求解器
+    ├── operators_render.py                      # 所见即所得视口渲染
     ├── operators_demo.py                        # 测量演示场景
     └── blender_material_loader.cpp              # C++ 源文件（当前未使用）
 ```
@@ -87,7 +89,7 @@ blender插件/
 ├──────────────────────────────────────────────────────────┤
 │                  操作符层 (operators_*.py)                │
 │   object · transform · align · export · material ·       │
-│   measure · kinematics · demo                            │
+│   measure · kinematics · render · demo                    │
 ├──────────────────────────────────────────────────────────┤
 │                  核心服务层                               │
 │    annotation.py     render_utils.py     utils.py        │
@@ -411,6 +413,21 @@ class MeasureMode:                   # 测量模式枚举
 | `BOFU_OT_auto_limits` | 操作符 | 自动计算驱动极限 |
 | `invalidate_solver_cache()` | 函数 | 清除求解器缓存 |
 
+### 视口渲染 `operators_render.py`
+
+**解决的问题**：Blender 默认的"渲染视图预览"（`bpy.ops.render.opengl()`）会经过场景的色彩管理（Filmic / AgX 等色调映射），导致实体模式下渲染结果色彩偏暗、与视口不一致。
+
+**原理**：临时将色彩管理切换为 Standard（直通 sRGB，不做额外色调映射），渲染完成后由用户手动恢复。
+
+| 操作符 | bl_idname | 功能 |
+|--------|-----------|------|
+| `BOFU_OT_viewport_render_wysiwyg` | `bofu.viewport_render_wysiwyg` | 临时切换到 Standard 色彩管理，执行视口渲染，确保输出色彩与视口完全一致 |
+| `BOFU_OT_restore_color_settings` | `bofu.restore_color_settings` | 恢复渲染前的色彩管理设置（Filmic / AgX 等） |
+
+**访问方式**：
+- 3D 视口 → `视图` 菜单底部
+- 饼图菜单 → 标注管理 → 杂项设置
+
 ### 演示场景 `operators_demo.py`
 
 | 操作符 | 功能 |
@@ -547,8 +564,9 @@ material_sync_handler (depsgraph_update_post)
 5. 挂载 save_pre / load_post 处理器   ← 标注持久化
 6. annotation.ensure_draw_handler()   ← 启动 GPU 绘制回调
 7. 注入镜像菜单项                     ← 添加到修改器菜单
-8. 注册快捷键 (Ctrl+M, Ctrl+F, `, BUTTON4MOUSE)
-9. 迁移默认变换面板到 "Item (旧版)"    ← 让位给增强版变换面板
+8. 注入所见即所得渲染菜单项            ← 添加到 3D 视口 View 菜单
+9. 注册快捷键 (Ctrl+M, Ctrl+F, `, BUTTON4MOUSE)
+10. 迁移默认变换面板到 "Item (旧版)"   ← 让位给增强版变换面板
 ```
 
 ### unregister() 执行顺序
@@ -559,8 +577,9 @@ material_sync_handler (depsgraph_update_post)
 3.  清理绘制回调属性
 4.  移除 save_pre / load_post 处理器
 5.  移除快捷键
-6.  移除菜单注入
-7.  移除 depsgraph 处理器
+6.  移除所见即所得渲染菜单
+7.  移除镜像菜单注入
+8.  移除 depsgraph 处理器
 8.  清除材质同步缓存
 8.1 清除运动学求解器缓存
 9.  unregister_properties()
