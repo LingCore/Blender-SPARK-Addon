@@ -102,11 +102,8 @@ def pack_addon(script_dir):
     output_filename = f"{OUTPUT_PREFIX}_v{version}.zip"
     output_path = os.path.join(script_dir, output_filename)
     
-    # 如果文件已存在，添加时间戳
     if os.path.exists(output_path):
-        timestamp = datetime.now().strftime("%H%M%S")
-        output_filename = f"{OUTPUT_PREFIX}_v{version}_{timestamp}.zip"
-        output_path = os.path.join(script_dir, output_filename)
+        print(f"[*] 覆盖已有文件: {output_filename}")
     
     print(f"[*] 源文件夹: {addon_path}")
     print(f"[*] 输出文件: {output_filename}")

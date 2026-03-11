@@ -15,7 +15,7 @@ from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 
 class MATERIAL_OT_apply_to_selected(Operator):
-    """将选中的材质应用到所有选中的网格对象"""
+    """选择一个材质，批量应用到所有选中的网格对象"""
     bl_idname = "material.apply_to_selected"
     bl_label = "批量应用材质"
     bl_options = {'REGISTER', 'UNDO'}

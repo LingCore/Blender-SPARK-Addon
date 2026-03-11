@@ -78,6 +78,9 @@ class VIEW3D_MT_material_tools(Menu):
     
     def draw(self, context):
         layout = self.layout
+        # 从饼图菜单弹出的子菜单中，operator_context 可能不是 INVOKE_DEFAULT，
+        # 导致 invoke() 被跳过、invoke_props_dialog 无法弹出，必须显式设置。
+        layout.operator_context = 'INVOKE_DEFAULT'
         
         # 批量应用材质
         layout.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
@@ -153,6 +156,9 @@ class VIEW3D_MT_align_tools(Menu):
     
     def draw(self, context):
         layout = self.layout
+        # 从饼图菜单弹出的子菜单中，operator_context 可能不是 INVOKE_DEFAULT，
+        # 导致 invoke() 被跳过、invoke_props_dialog 无法弹出，必须显式设置。
+        layout.operator_context = 'INVOKE_DEFAULT'
         
         # 根据当前模式显示不同选项
         if context.mode == 'EDIT_MESH':
