@@ -26,7 +26,7 @@ Blender 4.2+ 增强工具包
 bl_info = {
     "name": "Blender_增强_by.bofu",
     "author": "杨博夫",
-    "version": (3, 1, 0),
+    "version": (3, 2, 0),
     "blender": (4, 2, 0),
     "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F",
     "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器，所见即所得视口渲染",
@@ -297,7 +297,7 @@ def register():
     except Exception:
         pass
     
-    print("[Blender增强工具] 插件已加载 v3.1.0")
+    print("[Blender增强工具] 插件已加载 v3.2.0")
 
 
 def unregister():

@@ -1,6 +1,6 @@
 # Blender 增强工具包 (bofu_enhanced)
 
-> **版本**: v3.1.0  
+> **版本**: v3.2.0  
 > **作者**: 杨博夫  
 > **Blender 版本要求**: 4.2+  
 > **分类**: 3D View
@@ -53,7 +53,7 @@ blender插件/
 ├── pack_addon.py                                # 打包脚本
 ├── pack_addon.bat                               # Windows 一键打包
 ├── blender 增强 by bofu（此文件不修改）.py          # 旧版单文件插件 (v1.5.0, ~5400行, 已废弃)
-├── blender_enhanced_by_bofu_v3.1.0.zip          # 打包产物
+├── blender_enhanced_by_bofu_v3.2.0.zip          # 打包产物
 │
 └── bofu_enhanced/                               # 插件主目录（Blender 识别的 addon 包）
     ├── __init__.py                              # 入口：注册/注销、处理器、快捷键
