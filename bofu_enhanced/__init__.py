@@ -19,6 +19,8 @@ Blender 4.2+ 增强工具包
 - operators_material.py: 批量材质操作符
 - operators_measure.py: 智能测量操作符
 - operators_kinematics.py: 机构运动学（求解器、关节、驱动极限自动计算）
+- operators_render.py: 所见即所得渲染
+- operators_optimize.py: 一键模型优化
 - operators_demo.py: 演示场景
 - ui.py: 菜单和面板
 """
@@ -26,10 +28,10 @@ Blender 4.2+ 增强工具包
 bl_info = {
     "name": "Blender_增强_by.bofu",
     "author": "杨博夫",
-    "version": (3, 2, 0),
+    "version": (3, 3, 0),
     "blender": (4, 2, 0),
     "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F",
-    "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器，所见即所得视口渲染",
+    "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器，所见即所得视口渲染，一键模型优化",
     "warning": "",
     "doc_url": "",
     "tracker_url": "",
@@ -58,6 +60,7 @@ if "config" in locals():
     importlib.reload(operators_measure)
     importlib.reload(operators_kinematics)
     importlib.reload(operators_render)
+    importlib.reload(operators_optimize)
     importlib.reload(operators_demo)
     importlib.reload(ui)
 
@@ -74,6 +77,7 @@ from . import operators_material
 from . import operators_measure
 from . import operators_kinematics
 from . import operators_render
+from . import operators_optimize
 from . import operators_demo
 from . import ui
 
@@ -206,6 +210,7 @@ def register():
         operators_measure.classes +
         operators_kinematics.classes +
         operators_render.classes +
+        operators_optimize.classes +
         operators_demo.classes +
         ui.classes
     )
@@ -297,7 +302,7 @@ def register():
     except Exception:
         pass
     
-    print("[Blender增强工具] 插件已加载 v3.2.0")
+    print("[Blender增强工具] 插件已加载 v3.3.0")
 
 
 def unregister():
@@ -373,6 +378,7 @@ def unregister():
         operators_measure.classes +
         operators_kinematics.classes +
         operators_render.classes +
+        operators_optimize.classes +
         operators_demo.classes +
         ui.classes
     )

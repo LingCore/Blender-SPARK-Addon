@@ -106,6 +106,12 @@ class VIEW3D_MT_misc_tools(Menu):
     
     def draw(self, context):
         layout = self.layout
+        layout.operator_context = 'INVOKE_DEFAULT'
+        
+        # 一键优化模型
+        layout.operator("mesh.optimize_mesh_plus", text="一键优化模型", icon='MODIFIER')
+        
+        layout.separator()
         
         # 所见即所得视口渲染
         layout.operator(
