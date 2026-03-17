@@ -28,7 +28,7 @@ Blender 4.2+ 增强工具包
 bl_info = {
     "name": "Blender_增强_by.bofu",
     "author": "杨博夫",
-    "version": (3, 3, 0),
+    "version": (3, 3, 1),
     "blender": (4, 2, 0),
     "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F",
     "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器，所见即所得视口渲染，一键模型优化",
@@ -40,7 +40,10 @@ bl_info = {
 
 import bpy
 import gc
+import logging
 from bpy.app.handlers import persistent
+
+logger = logging.getLogger(__name__)
 
 # ==================== 模块导入（支持热重载）====================
 
@@ -51,6 +54,8 @@ if "config" in locals():
     importlib.reload(render_utils)
     importlib.reload(preferences)
     importlib.reload(properties)
+    importlib.reload(annotation_core)
+    importlib.reload(annotation_draw)
     importlib.reload(annotation)
     importlib.reload(operators_object)
     importlib.reload(operators_transform)
@@ -68,6 +73,8 @@ from . import config
 from . import render_utils
 from . import preferences
 from . import properties
+from . import annotation_core
+from . import annotation_draw
 from . import annotation
 from . import operators_object
 from . import operators_transform
@@ -129,7 +136,7 @@ def save_annotations_handler(dummy):
     """保存文件时自动保存标注数据"""
     try:
         # 检查偏好设置
-        addon_prefs = bpy.context.preferences.addons.get('bofu_enhanced')
+        addon_prefs = bpy.context.preferences.addons.get(__package__)
         if addon_prefs and hasattr(addon_prefs.preferences, 'auto_save_annotations'):
             if not addon_prefs.preferences.auto_save_annotations:
                 return
@@ -138,7 +145,7 @@ def save_annotations_handler(dummy):
         if bpy.context.scene:
             annotation.AnnotationStorage.save_to_scene(bpy.context.scene)
     except Exception as e:
-        print(f"⚠️ 自动保存标注失败: {e}")
+        logger.warning("自动保存标注失败: %s", e)
 
 
 @persistent
@@ -150,7 +157,7 @@ def load_annotations_handler(dummy):
     
     try:
         # 检查偏好设置
-        addon_prefs = bpy.context.preferences.addons.get('bofu_enhanced')
+        addon_prefs = bpy.context.preferences.addons.get(__package__)
         if addon_prefs and hasattr(addon_prefs.preferences, 'auto_load_annotations'):
             if not addon_prefs.preferences.auto_load_annotations:
                 return
@@ -160,7 +167,7 @@ def load_annotations_handler(dummy):
             annotation.AnnotationStorage.load_from_scene(bpy.context.scene)
             annotation.ensure_draw_handler_enabled()
     except Exception as e:
-        print(f"⚠️ 自动加载标注失败: {e}")
+        logger.warning("自动加载标注失败: %s", e)
 
 
 @persistent
@@ -185,7 +192,7 @@ def material_sync_handler(scene, depsgraph):
         # 同步材质
         operators_material.sync_material_auto(obj.active_material)
     except Exception:
-        pass  # 静默处理错误，避免干扰用户
+        logger.debug("材质同步异常", exc_info=True)
 
 
 # ==================== 注册/注销 ====================
@@ -310,7 +317,7 @@ def register():
     except Exception:
         pass
     
-    print("[Blender增强工具] 插件已加载 v3.3.0")
+    logger.info("插件已加载 v%s", ".".join(str(v) for v in bl_info["version"]))
 
 
 def unregister():
@@ -323,17 +330,13 @@ def unregister():
     # 2. 清除标注数据
     annotation.clear_all_annotations()
     
-    # 3. 清理绘制回调的属性
-    if hasattr(annotation.unified_draw_callback, '_last_cleanup_time'):
-        delattr(annotation.unified_draw_callback, '_last_cleanup_time')
-    
-    # 4. 移除持久化处理器
+    # 3. 移除持久化处理器
     if save_annotations_handler in bpy.app.handlers.save_pre:
         bpy.app.handlers.save_pre.remove(save_annotations_handler)
     if load_annotations_handler in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(load_annotations_handler)
     
-    # 5. 移除快捷键
+    # 4. 移除快捷键
     for km, kmi in addon_keymaps:
         try:
             km.keymap_items.remove(kmi)
@@ -341,13 +344,13 @@ def unregister():
             pass
     addon_keymaps.clear()
     
-    # 6. 移除所见即所得渲染菜单
+    # 5. 移除所见即所得渲染菜单
     try:
         bpy.types.VIEW3D_MT_view.remove(operators_render.menu_func_render)
     except (ValueError, RuntimeError):
         pass
     
-    # 7. 移除镜像菜单
+    # 6. 移除镜像菜单
     if hasattr(bpy.types, "OBJECT_MT_modifier_add_generate"):
         try:
             bpy.types.OBJECT_MT_modifier_add_generate.remove(operators_object.menu_func_mirror)
@@ -359,7 +362,7 @@ def unregister():
         except (ValueError, RuntimeError):
             pass
     
-    # 8. 移除处理器
+    # 7. 移除处理器
     if transform_plus_origin_sync in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(transform_plus_origin_sync)
     if material_sync_handler in bpy.app.handlers.depsgraph_update_post:
@@ -368,13 +371,13 @@ def unregister():
     # 8. 清除材质同步缓存
     operators_material.clear_material_cache()
     
-    # 8.1 清除运动学求解器缓存
+    # 9. 清除运动学求解器缓存
     operators_kinematics.invalidate_solver_cache()
     
-    # 9. 注销属性
+    # 10. 注销属性
     properties.unregister_properties()
     
-    # 10. 注销所有类（逆序）
+    # 11. 注销所有类（逆序）
     all_classes = (
         properties.classes +
         annotation.classes +
@@ -397,17 +400,17 @@ def unregister():
         except (RuntimeError, ValueError):
             pass
     
-    # 11. 注销偏好设置类（最后注销）
+    # 12. 注销偏好设置类（最后注销）
     for cls in reversed(preferences.classes):
         try:
             bpy.utils.unregister_class(cls)
         except (RuntimeError, ValueError):
             pass
     
-    # 12. 清除 Shader 缓存
+    # 13. 清除 Shader 缓存
     render_utils.ShaderCache.clear()
     
-    # 13. 恢复被移动的面板
+    # 14. 恢复被移动的面板
     for name, original_category in _original_panel_categories.items():
         try:
             panel = getattr(bpy.types, name, None)
@@ -417,9 +420,9 @@ def unregister():
             pass
     _original_panel_categories.clear()
     
-    # 14. 强制垃圾回收
+    # 15. 强制垃圾回收
     gc.collect()
-    print("[Blender增强工具] 插件已卸载，内存已清理")
+    logger.info("插件已卸载，内存已清理")
 
 
 if __name__ == "__main__":

@@ -494,10 +494,6 @@ class KINEMATICS_UL_joint_list(bpy.types.UIList):
             else:
                 row.label(text=f"↕{item.axis_direction}轴")
 
-        elif self.layout_type == 'GRID':
-            layout.alignment = 'CENTER'
-            layout.label(text="", icon='CONSTRAINT')
-
 
 class KINEMATICS_PT_main_panel(bpy.types.Panel):
     """机构运动学面板"""

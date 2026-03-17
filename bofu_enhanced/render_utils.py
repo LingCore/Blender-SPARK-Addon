@@ -256,7 +256,7 @@ def get_preferences():
     返回偏好设置对象，如果不存在则返回 None
     """
     try:
-        addon_prefs = bpy.context.preferences.addons.get('bofu_enhanced')
+        addon_prefs = bpy.context.preferences.addons.get(__package__)
         if addon_prefs:
             return addon_prefs.preferences
     except Exception:

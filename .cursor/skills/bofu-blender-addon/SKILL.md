@@ -46,6 +46,51 @@ description: 开发和维护本仓库中的 `bofu_enhanced` Blender 插件。用
 - 从弹出菜单里调用需要弹窗的操作符时，注意 `layout.operator_context = 'INVOKE_DEFAULT'`。
 - 用户可见功能变化后，补 `README.md`，尤其是入口、快捷键、面板位置、使用步骤和版本信息。
 
+## 编码质量规范
+
+### Python 风格
+
+- 遵循 PEP 8；类名 CamelCase，模块名和函数名小写下划线。
+- 枚举值用单引号 `'FINISHED'`，普通字符串用双引号 `"hello"`。
+- 明确导入，不要 `import *`。
+- 包内一律相对导入：`from .utils import helper`。
+
+### 类型注解
+
+- **不要**使用 `from __future__ import annotations`。
+- 工具函数可以加类型注解提升 IDE 支持。
+- `bpy.props` 属性定义不是标准类型注解，IDE 报假阳性时忽略即可。
+- 需要 IDE 补全可在虚拟环境安装 `fake-bpy-module`。
+
+### Operator 写法
+
+- 始终指定清晰的 `bl_idname`、`bl_label`、中文 `bl_description`。
+- 会改数据的操作符加 `bl_options = {'REGISTER', 'UNDO'}`。
+- 能写 `poll()` 就写 `poll()`，把上下文限制前置。
+- `execute` 内优先使用传入的 `context`，不要无脑用 `bpy.context`。
+- `execute` 保持精简——核心逻辑抽到独立函数或 `utils.py`，便于测试和复用。
+- 失败时通过 `self.report({'WARNING'}, msg)` 反馈，返回 `{'CANCELLED'}`。
+
+### 错误处理
+
+- 不要使用根日志器 `logging.basicConfig()`。
+- 使用 `logger = logging.getLogger(__name__)` 创建模块级日志器。
+- 高频回调（draw handler、modal、depsgraph handler）中避免异常流程控制。
+- Operator 失败优先用 `self.report()` 通知用户。
+
+### 性能注意
+
+- draw handler 每帧调用——缓存计算结果，不要每帧重算。
+- 大量 mesh 数据操作用 `foreach_get()` / `foreach_set()` + NumPy。
+- 字符串拼接用 `"".join()` 或 f-string，不要用 `+` 循环拼接。
+- 列表处理优先用推导式。
+- 成员检测用 `set` 不用 `list`。
+
+### 上下文管理
+
+- 需要覆盖上下文时，使用 `context.temp_override()`，不要用旧版字典覆盖。
+- `temp_override()` 只在 `with` 块内生效。
+
 ## 实施流程
 
 1. 先判定需求影响面，读取相关模块。
@@ -78,6 +123,7 @@ python -c "import os, pack_addon; ok = pack_addon.pack_addon(os.getcwd()); print
 - 放进语义最接近的 `operators_*.py`。
 - 保持清晰的 `bl_idname`、`bl_label`、中文说明文案。
 - 加入该模块的 `classes`。
+- `execute` 保持精简，核心逻辑抽到独立函数。
 - 需要入口时，补到 `ui.py` 或 `__init__.py` 快捷键。
 
 ### 新 Scene 属性
@@ -85,18 +131,28 @@ python -c "import os, pack_addon; ok = pack_addon.pack_addon(os.getcwd()); print
 - 定义在 `properties.py`。
 - 在 `register_properties()` / `unregister_properties()` 中成对处理。
 - 再接入 UI 和操作符，不要把状态散落到多个模块。
+- Blender 5.x 上不要用 dict 风格访问 `bpy.props` 定义的属性。
 
 ### 新菜单 / 面板入口
 
 - 优先挂到现有饼图、子菜单或侧栏面板。
 - 保持现有中文命名和 icon 风格。
 - 弹窗型操作符注意 `INVOKE_DEFAULT`。
+- 面板 `draw()` 只负责 UI 展示，不堆业务逻辑。
 
 ### 新 handler / 持久化
 
 - 生命周期接线写在 `__init__.py`。
 - 使用 `@persistent` 的场景，要同时考虑加载旧文件、切换文件、注销清理和重复注册。
 - 缓存类逻辑要考虑跨文件污染。
+- msgbus 订阅在加载新文件时会被清除，需在 `load_post` handler 中重新注册。
+
+### GPU / 绘制
+
+- 不要使用 `bgl`（5.0 已移除）。
+- 用 `gpu` 模块和当前推荐的 shader 写法。
+- draw handler 中不做 `bpy.ops` 调用。
+- 缓存 shader 和 batch，不要每帧重建。
 
 ### 打包 / 发布
 

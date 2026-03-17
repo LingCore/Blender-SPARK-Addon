@@ -6,7 +6,11 @@ bofu_enhanced/properties.py
 """
 
 import bpy
+import logging
+import numpy as np
 from bpy.types import PropertyGroup
+
+logger = logging.getLogger(__name__)
 from bpy.props import (
     StringProperty, EnumProperty, FloatProperty,
     BoolProperty, FloatVectorProperty,
@@ -34,8 +38,8 @@ def update_origin_location(self, context):
     if vert_count == 0:
         return
     
-    coords = [0.0] * (vert_count * 3)
-    mesh.vertices.foreach_get("co", coords)
+    co = np.empty(vert_count * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
     
     try:
         basis_matrix = obj.matrix_basis.to_3x3()
@@ -43,12 +47,10 @@ def update_origin_location(self, context):
     except Exception:
         local_delta = delta_vec.copy()
     
-    for i in range(0, len(coords), 3):
-        coords[i] -= local_delta.x
-        coords[i + 1] -= local_delta.y
-        coords[i + 2] -= local_delta.z
-    
-    mesh.vertices.foreach_set("co", coords)
+    delta = np.array([local_delta.x, local_delta.y, local_delta.z], dtype=np.float32)
+    co.shape = (-1, 3)
+    co -= delta
+    mesh.vertices.foreach_set("co", co.ravel())
     obj.location = target_location
     mesh.update_tag()
     
@@ -174,7 +176,7 @@ def update_driver_progress(self, context):
         from .operators_kinematics import solve_and_apply
         solve_and_apply(context)
     except Exception as e:
-        print(f"[运动学] 求解更新失败: {e}")
+        logger.warning("求解更新失败: %s", e)
 
 
 # ==================== 运动学属性组 ====================

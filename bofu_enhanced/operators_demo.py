@@ -9,10 +9,13 @@ bofu_enhanced/operators_demo.py
 
 import bpy
 import bmesh
+import logging
 import math
 from bpy.types import Operator
 from bpy.props import EnumProperty
 from mathutils import Vector
+
+logger = logging.getLogger(__name__)
 
 from .config import MeasureMode
 
@@ -138,7 +141,7 @@ class OBJECT_OT_measure_demo(Operator):
         # 2. 清理旧的 Demo 对象
         removed = cleanup_demo_objects(context)
         if removed > 0:
-            print(f"[演示] 已清理 {removed} 个旧演示对象")
+            logger.debug("已清理 %d 个旧演示对象", removed)
 
         # 3. 根据模式创建演示
         dispatch = {

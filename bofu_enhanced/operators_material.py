@@ -10,8 +10,11 @@ bofu_enhanced/operators_material.py
 """
 
 import bpy
+import logging
 from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty, BoolProperty
+
+logger = logging.getLogger(__name__)
 
 
 class MATERIAL_OT_apply_to_selected(Operator):
@@ -283,7 +286,7 @@ class MATERIAL_OT_cleanup_unused(Operator):
         
         if removed_count > 0:
             self.report({'INFO'}, f"已清理 {removed_count} 个未使用的材质")
-            print(f"[材质清理] 已删除: {', '.join(removed_names)}")
+            logger.debug("材质清理 已删除: %s", ", ".join(removed_names))
         else:
             self.report({'INFO'}, "没有未使用的材质需要清理")
         

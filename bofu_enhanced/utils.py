@@ -191,22 +191,27 @@ class AlignmentHelper:
         """
         获取对象在世界坐标系中的边界框
         
+        利用 Blender 已缓存的 bound_box（8 个角点）避免遍历全部顶点。
         返回: (min_point, max_point) 两个 Vector
         """
         if obj.type != 'MESH' or not obj.data.vertices:
             origin = obj.matrix_world.translation
             return origin.copy(), origin.copy()
         
-        world_verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        mw = obj.matrix_world
+        world_corners = [mw @ Vector(corner) for corner in obj.bound_box]
         
-        min_x = min(v.x for v in world_verts)
-        min_y = min(v.y for v in world_verts)
-        min_z = min(v.z for v in world_verts)
-        max_x = max(v.x for v in world_verts)
-        max_y = max(v.y for v in world_verts)
-        max_z = max(v.z for v in world_verts)
-        
-        return Vector((min_x, min_y, min_z)), Vector((max_x, max_y, max_z))
+        min_co = Vector((
+            min(c.x for c in world_corners),
+            min(c.y for c in world_corners),
+            min(c.z for c in world_corners),
+        ))
+        max_co = Vector((
+            max(c.x for c in world_corners),
+            max(c.y for c in world_corners),
+            max(c.z for c in world_corners),
+        ))
+        return min_co, max_co
     
     @staticmethod
     def get_reference_point(obj, ref_type, axis='Z'):

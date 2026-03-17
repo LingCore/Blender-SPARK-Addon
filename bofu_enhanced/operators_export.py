@@ -6,9 +6,12 @@ bofu_enhanced/operators_export.py
 """
 
 import bpy
+import logging
 import os
 from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty, FloatProperty, BoolProperty
+
+logger = logging.getLogger(__name__)
 
 from .utils import format_value
 
@@ -138,7 +141,7 @@ class EXPORT_OT_batch_obj_with_origin(Operator):
                         export_materials=self.export_materials
                     )
                     exported_count += 1
-                    print(f"已导出: {ob.name}.obj")
+                    logger.debug("已导出: %s.obj", ob.name)
             except Exception as e:
                 self.report({'WARNING'}, f"导出 {ob.name} 时发生错误: {str(e)}")
                 continue

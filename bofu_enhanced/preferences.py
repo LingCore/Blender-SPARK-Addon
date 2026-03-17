@@ -20,7 +20,7 @@ from .config import Config
 
 class BofuEnhancedPreferences(AddonPreferences):
     """Blender增强工具偏好设置"""
-    bl_idname = "bofu_enhanced"
+    bl_idname = __package__
     
     # ==================== 标注显示设置 ====================
     
@@ -206,7 +206,7 @@ class BOFU_OT_reset_annotation_colors(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
-        prefs = context.preferences.addons.get('bofu_enhanced')
+        prefs = context.preferences.addons.get(__package__)
         if prefs:
             p = prefs.preferences
             p.distance_bg_color = Config.Colors.DISTANCE_BG

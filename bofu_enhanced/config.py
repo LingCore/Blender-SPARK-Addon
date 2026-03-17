@@ -119,15 +119,24 @@ class AnnotationType:
         (DISTANCE, DISTANCE_TEMP),
     ]
     
+    _COMPAT_SET = None
+    
+    @classmethod
+    def _build_compat_set(cls):
+        if cls._COMPAT_SET is None:
+            s = set()
+            for a, b in cls.COMPATIBLE_PAIRS:
+                s.add((a, b))
+                s.add((b, a))
+            cls._COMPAT_SET = s
+    
     @classmethod
     def are_compatible(cls, type1, type2):
         """判断两个类型是否兼容"""
         if type1 == type2:
             return True
-        for pair in cls.COMPATIBLE_PAIRS:
-            if type1 in pair and type2 in pair:
-                return True
-        return False
+        cls._build_compat_set()
+        return (type1, type2) in cls._COMPAT_SET
 
 
 class MeasureMode:
