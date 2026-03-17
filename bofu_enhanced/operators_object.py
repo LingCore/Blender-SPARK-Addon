@@ -5,6 +5,7 @@ bofu_enhanced/operators_object.py
 对象级操作符，包括：
 - OBJECT_OT_mirror_plus: 镜像增强
 - OBJECT_OT_batch_rename: 名称批量替换
+- BOFU_OT_smart_numpad_period: 智能定位（双击大纲视图定位）
 """
 
 import bpy
@@ -295,9 +296,47 @@ class OBJECT_OT_batch_rename(Operator):
         return {"FINISHED"}
 
 
+# ==================== 智能定位操作符（双击小键盘句点 → 大纲视图定位）====================
+
+class BOFU_OT_smart_numpad_period(Operator):
+    """单击: 居中显示选中物体 | 双击: 在大纲视图中定位活动物体"""
+    bl_idname = "bofu.smart_numpad_period"
+    bl_label = "智能定位"
+    bl_options = {'INTERNAL'}
+
+    _DOUBLE_CLICK_THRESHOLD = 0.3
+    _last_press_time = 0.0
+
+    def invoke(self, context, event):
+        import time
+        cls = type(self)
+        now = time.time()
+
+        if now - cls._last_press_time < cls._DOUBLE_CLICK_THRESHOLD:
+            cls._last_press_time = 0.0
+            self._show_in_outliner(context)
+            return {'FINISHED'}
+
+        cls._last_press_time = now
+        bpy.ops.view3d.view_selected('INVOKE_DEFAULT')
+        return {'FINISHED'}
+
+    def _show_in_outliner(self, context):
+        for area in context.screen.areas:
+            if area.type == 'OUTLINER':
+                for region in area.regions:
+                    if region.type == 'WINDOW':
+                        with context.temp_override(area=area, region=region):
+                            bpy.ops.outliner.show_active()
+                        self.report({'INFO'}, "已在大纲视图中定位到活动物体")
+                        return
+        self.report({'WARNING'}, "未找到大纲视图面板")
+
+
 # ==================== 类注册列表 ====================
 
 classes = (
     OBJECT_OT_mirror_plus,
     OBJECT_OT_batch_rename,
+    BOFU_OT_smart_numpad_period,
 )

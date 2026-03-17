@@ -292,6 +292,14 @@ def register():
         km = kc.keymaps.new(name="Object Mode", space_type="EMPTY")
         kmi = km.keymap_items.new(ui.BOFU_OT_call_pie_menu.bl_idname, type="BUTTON4MOUSE", value="PRESS")
         addon_keymaps.append((km, kmi))
+        
+        # 小键盘句点(.): 智能定位（单击居中视图 / 双击定位大纲视图）
+        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
+        kmi = km.keymap_items.new(
+            operators_object.BOFU_OT_smart_numpad_period.bl_idname,
+            type="NUMPAD_PERIOD", value="PRESS",
+        )
+        addon_keymaps.append((km, kmi))
     
     # 10. 移动默认变换面板到隐藏标签页
     try:
