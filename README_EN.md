@@ -10,6 +10,8 @@
 ![License](https://img.shields.io/badge/License-GPL--3.0-blue)
 ![Version](https://img.shields.io/badge/Version-3.3.1-green)
 
+![SPARK preview](docs/preview.png)
+
 ---
 
 ## ✨ Features
