@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title Blender 插件打包工具
+title Blender SPARK Addon 打包
 
 cd /d "%~dp0"
 python pack_addon.py

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Blender 插件打包脚本
+Blender SPARK Addon（bofu_enhanced）打包脚本
 
-功能：
-- 将 bofu_enhanced 文件夹打包成 zip 文件
-- 自动从 __init__.py 读取版本号
-- 排除 __pycache__、.pyc 等不需要的文件
-- 生成带版本号的 zip 文件名
+作用：
+- 将目录 bofu_enhanced/ 打成 zip，zip 内顶层即为 bofu_enhanced/，可直接用于
+  Blender「编辑 → 偏好设置 → 插件 → 从磁盘安装」。
+- 版本号从 bofu_enhanced/__init__.py 的 bl_info["version"] 解析；若解析失败则
+  用当天日期作为文件名后缀。
+- 输出文件名：blender_spark_addon_v<主.次.修订>.zip（与仓库发行包命名一致）。
+- 打包时跳过 __pycache__、.pyc、.git 等无关文件。
 
-使用方法：
-- 双击运行 pack_addon.bat
-- 或者命令行运行: python pack_addon.py
+使用：双击 pack_addon.bat，或在仓库根目录执行：python pack_addon.py
 """
 
 import os
@@ -156,7 +156,7 @@ def pack_addon(script_dir):
 def main():
     """主函数"""
     print("=" * 50)
-    print("  Blender Enhanced Toolkit 打包工具")
+    print("  Blender SPARK Addon 打包")
     print("=" * 50)
     print()
     
