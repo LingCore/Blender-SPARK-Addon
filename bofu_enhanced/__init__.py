@@ -1,9 +1,10 @@
-# ==================== Blender 增强工具包入口 ====================
+# ==================== Blender SPARK Addon 入口 ====================
 """
 bofu_enhanced/__init__.py
 
+SPARK - Smart Precision Alignment, Rendering & Kinematics
 Blender 4.2+ 增强工具包
-作者：杨博夫
+作者：LingCore
 
 模块化结构：
 - config.py: 配置常量
@@ -26,8 +27,8 @@ Blender 4.2+ 增强工具包
 """
 
 bl_info = {
-    "name": "Blender_增强_by.bofu",
-    "author": "杨博夫",
+    "name": "Blender SPARK Addon",
+    "author": "LingCore",
     "version": (3, 3, 1),
     "blender": (4, 2, 0),
     "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F",

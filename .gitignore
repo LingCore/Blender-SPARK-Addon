@@ -5,7 +5,6 @@ __pycache__/
 *.so
 
 # Distribution / packaging
-*.zip
 dist/
 build/
 *.egg-info/

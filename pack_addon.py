@@ -29,7 +29,7 @@ if sys.platform == "win32":
 # ==================== 配置 ====================
 
 ADDON_FOLDER = "bofu_enhanced"
-OUTPUT_PREFIX = "blender_enhanced_by_bofu"
+OUTPUT_PREFIX = "blender_spark_addon"
 
 # 要排除的文件/文件夹模式
 EXCLUDE_PATTERNS = [
@@ -156,7 +156,7 @@ def pack_addon(script_dir):
 def main():
     """主函数"""
     print("=" * 50)
-    print("  Blender 增强插件打包工具")
+    print("  Blender Enhanced Toolkit 打包工具")
     print("=" * 50)
     print()
     

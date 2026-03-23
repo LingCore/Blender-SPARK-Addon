@@ -16,9 +16,9 @@ from .utils import format_value
 # ==================== 饼图菜单 ====================
 
 class VIEW3D_MT_PIE_bofu_tools(Menu):
-    """小夫的增强工具饼图菜单"""
+    """增强工具饼图菜单"""
     bl_idname = "VIEW3D_MT_PIE_bofu_tools"
-    bl_label = "小夫的增强工具"
+    bl_label = "增强工具"
 
     def draw(self, context):
         layout = self.layout
@@ -217,9 +217,9 @@ class VIEW3D_MT_align_tools(Menu):
 
 
 class BOFU_OT_call_pie_menu(Operator):
-    """呼出小夫的增强工具饼图菜单"""
+    """呼出增强工具饼图菜单"""
     bl_idname = "bofu.call_pie_menu"
-    bl_label = "小夫的增强工具"
+    bl_label = "增强工具"
     bl_options = {'REGISTER'}
 
     def execute(self, context):
