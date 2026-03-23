@@ -141,8 +141,13 @@ class AnnotationSettings(PropertyGroup):
     auto_overwrite: BoolProperty(
         name="自动覆盖标注",
         description="对相同元素重复测量时，自动覆盖旧标注。关闭后会保留所有标注，允许叠加显示",
-        default=True
+        default=False
     )
+
+def _update_show_fps(self, context):
+    """视口帧率开关的更新回调"""
+    from . import fps_overlay
+    fps_overlay.update_show_fps(self, context)
 
 
 class MiscSettings(PropertyGroup):
@@ -151,6 +156,12 @@ class MiscSettings(PropertyGroup):
         name="材质同步",
         description="开启后，视图显示和 Principled BSDF 节点的颜色、金属度、糙度会自动双向同步",
         default=True
+    )
+    show_viewport_fps: BoolProperty(
+        name="视口帧率",
+        description="在 3D 视口左上角显示实时帧率（FPS）",
+        default=False,
+        update=lambda self, ctx: _update_show_fps(self, ctx)
     )
 
 

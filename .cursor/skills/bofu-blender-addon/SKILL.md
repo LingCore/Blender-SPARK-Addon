@@ -44,6 +44,7 @@ description: 开发和维护本仓库中的 `bofu_enhanced` Blender 插件。用
 - 新增模块时，同步更新 `__init__.py` 的热重载块、导入区和 `all_classes` 聚合。
 - handler 需要可重复注册、可安全失败，且放在 `__init__.py` 管生命周期。
 - 从弹出菜单里调用需要弹窗的操作符时，注意 `layout.operator_context = 'INVOKE_DEFAULT'`。
+- BoolProperty 的 `update` 回调若需跨模块调用，**必须用模块级函数 + 局部 `from . import` 导入**，不要用 `lambda + __import__('importlib').import_module()` 写法——Blender 的属性系统会静默吞掉异常，导致回调失效且无任何报错。
 - 用户可见功能变化后，补 `README.md`，尤其是入口、快捷键、面板位置、使用步骤和版本信息。
 
 ## 编码质量规范
@@ -146,6 +147,7 @@ python -c "import os, pack_addon; ok = pack_addon.pack_addon(os.getcwd()); print
 - 使用 `@persistent` 的场景，要同时考虑加载旧文件、切换文件、注销清理和重复注册。
 - 缓存类逻辑要考虑跨文件污染。
 - msgbus 订阅在加载新文件时会被清除，需在 `load_post` handler 中重新注册。
+- **热重载陷阱**：`draw_handler_add` 捕获的是注册时的函数引用。`importlib.reload()` 会创建新函数对象，但旧 handler 仍引用旧函数。改了 draw callback 代码后，必须**重启 Blender**，不能靠重新安装插件。
 
 ### GPU / 绘制
 
@@ -153,6 +155,10 @@ python -c "import os, pack_addon; ok = pack_addon.pack_addon(os.getcwd()); print
 - 用 `gpu` 模块和当前推荐的 shader 写法。
 - draw handler 中不做 `bpy.ops` 调用。
 - 缓存 shader 和 batch，不要每帧重建。
+- **必须 `shader.bind()`**：调用 `shader.uniform_float()` 前必须先 `shader.bind()`，否则 uniform 不生效、图形不渲染，且无任何报错。
+- **blend 状态**：`blf.draw()` 绘制文字时，GPU blend 状态应为 `'ALPHA'`，在 `blf.draw()` 完成后再 `gpu.state.blend_set('NONE')`。
+- **高 DPI 适配**：Blender 的 `region.width`/`region.height` 返回的是设备像素值。在高 DPI 显示器上，必须用 `bpy.context.preferences.system.ui_scale * pixel_size` 缩放字体大小(`blf.size`)和坐标偏移量，否则文字会极小几乎不可见。
+- draw handler 中推荐用 `try-except` 包裹全部绘制逻辑，异常时 `print` 到系统控制台，否则绘制错误会被 Blender 静默吞掉。
 
 ### 打包 / 发布
 

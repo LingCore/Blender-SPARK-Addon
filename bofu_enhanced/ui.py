@@ -128,6 +128,12 @@ class VIEW3D_MT_misc_tools(Menu):
         
         layout.separator()
         
+        # 视口帧率开关
+        if hasattr(context.scene, 'misc_settings'):
+            settings = context.scene.misc_settings
+            fps_icon = 'CHECKBOX_HLT' if settings.show_viewport_fps else 'CHECKBOX_DEHLT'
+            layout.prop(settings, "show_viewport_fps", icon=fps_icon)
+        
         # 材质同步开关
         _draw_material_sync_ui(layout, context)
 

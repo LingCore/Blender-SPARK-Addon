@@ -57,6 +57,7 @@ if "config" in locals():
     importlib.reload(annotation_core)
     importlib.reload(annotation_draw)
     importlib.reload(annotation)
+    importlib.reload(fps_overlay)
     importlib.reload(operators_object)
     importlib.reload(operators_transform)
     importlib.reload(operators_align)
@@ -76,6 +77,7 @@ from . import properties
 from . import annotation_core
 from . import annotation_draw
 from . import annotation
+from . import fps_overlay
 from . import operators_object
 from . import operators_transform
 from . import operators_align
@@ -375,6 +377,9 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(transform_plus_origin_sync)
     if material_sync_handler in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(material_sync_handler)
+    
+    # 8.5 移除 FPS 覆盖层
+    fps_overlay.disable_fps_overlay()
     
     # 8. 清除材质同步缓存
     operators_material.clear_material_cache()
