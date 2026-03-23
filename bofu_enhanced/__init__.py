@@ -172,12 +172,21 @@ def load_annotations_handler(dummy):
 
 @persistent
 def material_sync_handler(scene, depsgraph):
-    """材质自动同步处理器"""
+    """材质自动同步处理器（已优化：过滤 depsgraph 更新类型）"""
     try:
         if not scene or not hasattr(scene, 'misc_settings'):
             return
         
         if not scene.misc_settings.material_sync_enabled:
+            return
+        
+        # ★ 性能优化：只在材质或对象相关更新时才处理
+        has_relevant_update = False
+        for update in depsgraph.updates:
+            if isinstance(update.id, (bpy.types.Material, bpy.types.Object)):
+                has_relevant_update = True
+                break
+        if not has_relevant_update:
             return
         
         # 获取活动对象的活动材质
@@ -228,9 +237,8 @@ def register():
     # 3. 注册属性
     properties.register_properties()
     
-    # 4. 注册处理器
-    if transform_plus_origin_sync not in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.append(transform_plus_origin_sync)
+    # 4. 原点同步处理器：按需注册（由 properties.py 的 update_only_modify_origin 控制）
+    # ★ 性能优化：不再默认注册，仅在启用"只修改原点"功能时才注册
     
     # 5. 注册材质同步处理器
     if material_sync_handler not in bpy.app.handlers.depsgraph_update_post:

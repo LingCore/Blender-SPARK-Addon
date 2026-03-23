@@ -335,28 +335,53 @@ class TRANSFORM_PT_precise_panel(Panel):
             col.label(text=f"选中 {len(selected_verts)} 个顶点", icon='VERTEXSEL')
             col.separator()
             
-            # 计算中心点
-            center = Vector((0, 0, 0))
-            for v in selected_verts:
-                center += mw @ v.co
-            center /= len(selected_verts)
+            # ★ 性能优化 5：大量顶点时用 numpy 向量化计算
+            n = len(selected_verts)
+            if n > 50:
+                try:
+                    import numpy as np_ui
+                    coords = np_ui.array([list(mw @ v.co) for v in selected_verts])
+                    center_arr = coords.mean(axis=0)
+                    min_arr = coords.min(axis=0)
+                    max_arr = coords.max(axis=0)
+                    center = Vector(center_arr)
+                    size = Vector(max_arr - min_arr)
+                except Exception:
+                    # 回退到 Python 计算
+                    center = Vector((0, 0, 0))
+                    for v in selected_verts:
+                        center += mw @ v.co
+                    center /= n
+                    min_co = Vector((float('inf'), float('inf'), float('inf')))
+                    max_co = Vector((float('-inf'), float('-inf'), float('-inf')))
+                    for v in selected_verts:
+                        world_co = mw @ v.co
+                        for i in range(3):
+                            min_co[i] = min(min_co[i], world_co[i])
+                            max_co[i] = max(max_co[i], world_co[i])
+                    size = max_co - min_co
+            else:
+                # 小数量用原逻辑（避免 numpy 导入开销）
+                center = Vector((0, 0, 0))
+                for v in selected_verts:
+                    center += mw @ v.co
+                center /= n
+                min_co = Vector((float('inf'), float('inf'), float('inf')))
+                max_co = Vector((float('-inf'), float('-inf'), float('-inf')))
+                for v in selected_verts:
+                    world_co = mw @ v.co
+                    for i in range(3):
+                        min_co[i] = min(min_co[i], world_co[i])
+                        max_co[i] = max(max_co[i], world_co[i])
+                size = max_co - min_co
             
             col.label(text="中心点 (世界坐标):", icon='PIVOT_MEDIAN')
             sub = col.column(align=True)
             for i, axis in enumerate(['X', 'Y', 'Z']):
                 sub.label(text=f"{axis}  {format_value(center[i])} m")
             
-            # 计算边界范围
+            # 显示选区尺寸
             col.separator()
-            min_co = Vector((float('inf'), float('inf'), float('inf')))
-            max_co = Vector((float('-inf'), float('-inf'), float('-inf')))
-            for v in selected_verts:
-                world_co = mw @ v.co
-                for i in range(3):
-                    min_co[i] = min(min_co[i], world_co[i])
-                    max_co[i] = max(max_co[i], world_co[i])
-            
-            size = max_co - min_co
             col.label(text="选区尺寸:", icon='ARROW_LEFTRIGHT')
             sub = col.column(align=True)
             for i, axis in enumerate(['X', 'Y', 'Z']):

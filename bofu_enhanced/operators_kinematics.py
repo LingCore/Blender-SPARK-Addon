@@ -247,10 +247,10 @@ class PlanarMechanismSolver:
                 }
 
     def _get_obj_info(self, name):
-        """获取活动对象的初始状态信息"""
-        for mo in self.moving_objects:
-            if mo['name'] == name:
-                return mo
+        """获取活动对象的初始状态信息（★ 已优化为 O(1) 字典查找）"""
+        idx = self.obj_index_map.get(name)
+        if idx is not None:
+            return self.moving_objects[idx]
         return None
 
     def compute_dof(self):

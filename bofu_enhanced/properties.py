@@ -59,13 +59,22 @@ def update_origin_location(self, context):
 
 
 def update_only_modify_origin(self, context):
-    """只修改原点模式切换回调"""
+    """只修改原点模式切换回调（含按需 handler 注册）"""
+    from . import transform_plus_origin_sync
+    import bpy
+    
     obj = context.active_object
     if self.only_modify_origin and obj and obj.type == 'MESH':
         self.origin_location = obj.location
         self.last_origin_object = obj.name
+        # ★ 性能优化：启用时才注册 depsgraph handler
+        if transform_plus_origin_sync not in bpy.app.handlers.depsgraph_update_post:
+            bpy.app.handlers.depsgraph_update_post.append(transform_plus_origin_sync)
     else:
         self.last_origin_object = ""
+        # ★ 性能优化：禁用时移除 depsgraph handler
+        if transform_plus_origin_sync in bpy.app.handlers.depsgraph_update_post:
+            bpy.app.handlers.depsgraph_update_post.remove(transform_plus_origin_sync)
 
 
 # ==================== PropertyGroup 定义 ====================

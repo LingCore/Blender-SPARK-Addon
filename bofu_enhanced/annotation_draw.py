@@ -11,14 +11,14 @@ from mathutils import Vector
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from .config import Config, AnnotationType
-from .render_utils import LabelRenderer, get_font_size, get_bg_color
+from .render_utils import LabelRenderer, get_font_size, get_bg_color, invalidate_pref_cache
 from .utils import get_vertex_world_coord_realtime, get_edge_world_coords_realtime, calc_arc_data
 
 
 # ==================== 统一绘制回调 ====================
 
 def unified_draw_callback():
-    """统一的标注绘制回调函数"""
+    """统一的标注绘制回调函数（已优化）"""
     from .annotation_core import AnnotationManager, is_visible
 
     if not is_visible():
@@ -30,6 +30,12 @@ def unified_draw_callback():
 
     if not region or not rv3d:
         return
+
+    # ★ 性能优化 3：每帧重置偏好缓存，确保每帧最多查询一次偏好设置
+    invalidate_pref_cache()
+
+    # ★ 性能优化 8：预建对象查找缓存，避免重复 bpy.data.objects.get()
+    _obj_cache.clear()
 
     registry = AnnotationManager.get_registry()
     for obj_name, data in registry.items():
@@ -44,6 +50,23 @@ def unified_draw_callback():
                 draw_fn(obj_name, data, region, rv3d)
             else:
                 draw_fn(data, region, rv3d)
+
+
+# ==================== 对象查找缓存 ====================
+# ★ 性能优化 8：避免同一帧内对同一对象名重复调用 bpy.data.objects.get()
+
+_obj_cache = {}
+_SENTINEL = object()  # 用于区分"未缓存"和"缓存了 None"
+
+
+def _get_obj_cached(obj_name):
+    """带帧缓存的对象查找（同一帧内缓存结果）"""
+    result = _obj_cache.get(obj_name, _SENTINEL)
+    if result is not _SENTINEL:
+        return result
+    obj = bpy.data.objects.get(obj_name)
+    _obj_cache[obj_name] = obj  # 缓存，包括 None
+    return obj
 
 
 # ==================== 绘制辅助函数 ====================
@@ -104,7 +127,7 @@ def draw_edge_angle_label(screen_pos, angle_deg, supplement):
 # ==================== 具体绘制函数 ====================
 
 def draw_distance_annotation(obj_name, data, region, rv3d):
-    obj = bpy.data.objects.get(obj_name)
+    obj = _get_obj_cached(obj_name)
     if not obj or obj.type != 'MESH':
         return
 
@@ -161,7 +184,7 @@ def draw_distance_temp_annotation(data, region, rv3d):
 
 
 def draw_angle_annotation(obj_name, data, region, rv3d):
-    obj = bpy.data.objects.get(obj_name)
+    obj = _get_obj_cached(obj_name)
     if not obj or obj.type != 'MESH':
         return
 
@@ -389,7 +412,7 @@ def draw_line_angles_annotation(data, region, rv3d):
 
 
 def draw_radius_annotation(obj_name, data, region, rv3d):
-    obj = bpy.data.objects.get(obj_name)
+    obj = _get_obj_cached(obj_name)
     if not obj or obj.type != 'MESH':
         return
 
@@ -600,7 +623,7 @@ def draw_arc_length_annotation(obj_name, data, region, rv3d):
             draw_arc_length_label(screen_pos, arc_data)
 
     elif is_bound:
-        obj = bpy.data.objects.get(obj_name)
+        obj = _get_obj_cached(obj_name)
         if not obj or obj.type != 'MESH':
             return
         mesh = obj.data

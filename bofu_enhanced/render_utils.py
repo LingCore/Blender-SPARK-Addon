@@ -21,9 +21,10 @@ class ShaderCache:
     """
     Shader 缓存单例
     
-    避免每帧重复创建 shader，提升渲染性能
+    避免每帧重复创建 shader 和 GPU Batch，提升渲染性能
     """
     _shader = None
+    _unit_quad_batch = None  # ★ 性能优化：缓存单位方形 Batch
     
     @classmethod
     def get_shader(cls):
@@ -33,9 +34,22 @@ class ShaderCache:
         return cls._shader
     
     @classmethod
+    def get_unit_quad_batch(cls):
+        """获取可复用的单位方形 Batch（缓存，避免每帧重建）"""
+        if cls._unit_quad_batch is None:
+            vertices = ((0, 0), (1, 0), (1, 1), (0, 1))
+            indices = ((0, 1, 2), (2, 3, 0))
+            shader = cls.get_shader()
+            cls._unit_quad_batch = batch_for_shader(
+                shader, 'TRIS', {"pos": vertices}, indices=indices
+            )
+        return cls._unit_quad_batch
+    
+    @classmethod
     def clear(cls):
         """清除缓存（用于插件卸载时）"""
         cls._shader = None
+        cls._unit_quad_batch = None
 
 
 # ==================== 标签渲染器 ====================
@@ -54,7 +68,7 @@ class LabelRenderer:
     @staticmethod
     def draw_background(center_x, center_y, width, height, color, padding=None):
         """
-        绘制标签背景
+        绘制标签背景（已优化：复用缓存的单位 Batch）
         
         参数:
             center_x, center_y: 背景中心位置
@@ -70,24 +84,22 @@ class LabelRenderer:
         bg_width = width + padding * 2
         bg_height = height + padding * 2
         
-        vertices = (
-            (bg_x, bg_y),
-            (bg_x + bg_width, bg_y),
-            (bg_x + bg_width, bg_y + bg_height),
-            (bg_x, bg_y + bg_height),
-        )
-        indices = ((0, 1, 2), (2, 3, 0))
-        
         gpu.state.blend_set('ALPHA')
         shader = ShaderCache.get_shader()
-        batch = batch_for_shader(shader, 'TRIS', {"pos": vertices}, indices=indices)
-        shader.bind()
-        shader.uniform_float("color", color)
-        batch.draw(shader)
+        batch = ShaderCache.get_unit_quad_batch()
+        
+        # ★ 性能优化：用矩阵变换复用缓存 Batch，而非每帧重建
+        with gpu.matrix.push_pop():
+            gpu.matrix.translate((bg_x, bg_y))
+            gpu.matrix.scale((bg_width, bg_height))
+            shader.bind()
+            shader.uniform_float("color", color)
+            batch.draw(shader)
+        
         gpu.state.blend_set('NONE')
     
     @staticmethod
-    def draw_text(x, y, text, color, font_id=0, font_size=None):
+    def draw_text(x, y, text, color, font_id=0, font_size=None, _skip_size=False):
         """
         绘制单行文本
         
@@ -97,11 +109,13 @@ class LabelRenderer:
             color: RGBA颜色元组
             font_id: 字体ID
             font_size: 字体大小，默认使用配置值
+            _skip_size: ★ 性能优化：跳过 blf.size 调用（当已在外层设置过时使用）
         """
-        if font_size is None:
-            font_size = Config.DEFAULT_FONT_SIZE
+        if not _skip_size:
+            if font_size is None:
+                font_size = Config.DEFAULT_FONT_SIZE
+            blf.size(font_id, font_size)
         
-        blf.size(font_id, font_size)
         blf.position(font_id, x, y, 0)
         blf.color(font_id, *color)
         blf.draw(font_id, text)
@@ -214,12 +228,12 @@ class LabelRenderer:
             bg_color, padding
         )
         
-        # 绘制每行文本
+        # 绘制每行文本（★ 性能优化：已在上方设置过 blf.size，跳过重复调用）
         y_start = screen_pos[1] + total_height / 2 - line_height / 2
         for i, (line, color, width) in enumerate(zip(lines, colors, line_widths)):
             y = y_start - i * (line_height + line_spacing)
             x = screen_pos[0] - width / 2
-            LabelRenderer.draw_text(x, y, line, color, font_id, font_size)
+            LabelRenderer.draw_text(x, y, line, color, font_id, font_size, _skip_size=True)
     
     @staticmethod
     def draw_label_with_offset(screen_pos, lines, colors=None, bg_color=None,
@@ -264,6 +278,59 @@ def get_preferences():
     return None
 
 
+# ==================== 偏好设置帧缓存 ====================
+# ★ 性能优化：每帧最多刷新一次偏好设置缓存，避免每个标注都重复查询
+
+_pref_cache = {}
+_pref_cache_token = None  # 用于判断是否需要刷新
+
+_BG_COLOR_TYPES = (
+    'distance', 'angle', 'radius', 'edge_angle', 'edge_length',
+    'vertex_angle', 'line_angle', 'face_area', 'perimeter', 'arc_length',
+)
+
+_DEFAULT_BG_COLORS = {
+    'distance': Config.Colors.DISTANCE_BG,
+    'angle': Config.Colors.ANGLE_BG,
+    'radius': Config.Colors.RADIUS_BG,
+    'edge_angle': Config.Colors.EDGE_ANGLE_BG,
+    'edge_length': Config.Colors.EDGE_LENGTH_BG,
+    'vertex_angle': Config.Colors.VERTEX_ANGLE_BG,
+    'line_angle': Config.Colors.LINE_ANGLE_BG,
+    'face_area': Config.Colors.FACE_AREA_BG,
+    'perimeter': Config.Colors.PERIMETER_BG,
+    'arc_length': Config.Colors.ARC_LENGTH_BG,
+}
+
+
+def _refresh_pref_cache_if_needed():
+    """每帧最多刷新一次偏好设置缓存"""
+    global _pref_cache, _pref_cache_token
+    # 用对象 id 作为 token，当绘制回调在同一帧内多次调用时跳过
+    # 注：简单用一个标记位，由 unified_draw_callback 入口重置
+    if _pref_cache_token is True:
+        return
+    _pref_cache_token = True
+    
+    prefs = get_preferences()
+    if prefs:
+        _pref_cache['font_size'] = getattr(prefs, 'annotation_font_size', Config.DEFAULT_FONT_SIZE)
+        for ct in _BG_COLOR_TYPES:
+            attr = f'{ct}_bg_color'
+            if hasattr(prefs, attr):
+                color = getattr(prefs, attr)
+                if len(color) == 4:
+                    _pref_cache[attr] = tuple(color)
+    else:
+        _pref_cache['font_size'] = Config.DEFAULT_FONT_SIZE
+
+
+def invalidate_pref_cache():
+    """重置偏好缓存标记（由 draw callback 入口每帧调用一次）"""
+    global _pref_cache_token
+    _pref_cache_token = None
+
+
 def get_pref_value(attr_name, default):
     """
     获取偏好设置的某个属性值
@@ -282,36 +349,21 @@ def get_pref_value(attr_name, default):
 
 
 def get_font_size():
-    """获取字体大小（优先使用偏好设置）"""
-    return get_pref_value('annotation_font_size', Config.DEFAULT_FONT_SIZE)
+    """获取字体大小（优先使用帧缓存）"""
+    _refresh_pref_cache_if_needed()
+    return _pref_cache.get('font_size', Config.DEFAULT_FONT_SIZE)
 
 
 def get_bg_color(color_type):
     """
-    获取背景颜色（优先使用偏好设置）
+    获取背景颜色（优先使用帧缓存）
     
     参数:
         color_type: 颜色类型 ('distance', 'angle', 'radius', 等)
     """
-    # 尝试从偏好设置获取
-    attr_name = f'{color_type}_bg_color'
-    prefs = get_preferences()
-    if prefs and hasattr(prefs, attr_name):
-        color = getattr(prefs, attr_name)
-        if len(color) == 4:
-            return tuple(color)
-    
-    # 返回默认颜色
-    color_map = {
-        'distance': Config.Colors.DISTANCE_BG,
-        'angle': Config.Colors.ANGLE_BG,
-        'radius': Config.Colors.RADIUS_BG,
-        'edge_angle': Config.Colors.EDGE_ANGLE_BG,
-        'edge_length': Config.Colors.EDGE_LENGTH_BG,
-        'vertex_angle': Config.Colors.VERTEX_ANGLE_BG,
-        'line_angle': Config.Colors.LINE_ANGLE_BG,
-        'face_area': Config.Colors.FACE_AREA_BG,
-        'perimeter': Config.Colors.PERIMETER_BG,
-        'arc_length': Config.Colors.ARC_LENGTH_BG,
-    }
-    return color_map.get(color_type, Config.Colors.DISTANCE_BG)
+    _refresh_pref_cache_if_needed()
+    attr = f'{color_type}_bg_color'
+    cached = _pref_cache.get(attr)
+    if cached:
+        return cached
+    return _DEFAULT_BG_COLORS.get(color_type, Config.Colors.DISTANCE_BG)
