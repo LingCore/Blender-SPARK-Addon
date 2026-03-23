@@ -2,7 +2,7 @@
 
 **SPARK** — **S**mart **P**recision **A**lignment, **R**endering & **K**inematics
 
-> A Blender 4.2+ viewport workflow add-on: measurement & annotations, alignment & transform, batch export & materials, planar kinematics, viewport rendering, and performance tools. After installation, a **pie menu** and **hotkeys** provide a single entry point so features are easy to find.
+> Pulls scattered viewport workflows into a **pie menu + a few hotkeys**, and fills gaps Blender doesn’t cover out of the box (saved measurements, batch asset ops, 2D linkage solving, etc.).
 
 **简体中文文档：** [README.md](README.md)
 
@@ -18,42 +18,38 @@
 
 ### 📐 Smart measurement & annotations
 
-- **Geometry**: distance between origins, edge length, per-axis deltas, angles between edges or faces, vertex angles, radius/diameter, face area, perimeter, arc length, and more.
-- **Persistence**: annotation data is stored in the `.blend`; preferences can control auto save/load on file operations.
-- **Edit mode**: measurements tied to mesh elements can update when geometry changes (behavior depends on annotation type and selection).
-- **Display**: font size, colors, distance culling, etc. are configurable in **Add-on Preferences** to keep the viewport readable.
+**Why**: Built-in measure tools are ephemeral—hard to keep in the scene for reference. Here, common dimensions become **persistent, stylable** viewport labels that can track edits where applicable.
+
+- Distances, angles, radius/diameter, area, perimeter, arc length; saved in the `.blend`; prefs for auto save/load, fonts, culling.
 
 ### 🎯 Precise alignment & transform
 
-- **Alignment**: object/vertex alignment along X/Y/Z (min/center/max), bottom align, flatten selection, align to edge direction, and equal spacing between objects.
-- **High-precision transform**: readouts show **full floating-point precision** for verification.
-- **Origin workflows**: optional origin sync when using origin-only workflows (wired via `depsgraph`, registered only when needed).
+**Why**: Alignment is spread across menus; doing min/center/max and even spacing on many objects takes repeated clicks. This groups those workflows and shows **full-precision** transform readouts so values match external references.
+
+- Object/vertex align, bottom, flatten, align to edge, distribute; optional origin-only sync.
 
 ### 🪞 Mirror plus (default `Ctrl+M`)
 
-- Choose between **Mirror modifier** workflows and **duplicate + mirror**, with **X/Y/Z** axes.
-- Also available from the **Add Modifier** menu (same entry as the pie menu).
+**Why**: Blender already mirrors—but **adding a modifier, picking an axis, or duplicating first** is still several steps. This **one-shot** picks **modifier-only** vs **duplicate then mirror**, tied to the pie menu and `Ctrl+M`, so symmetry workflows stay short.
+
+- X/Y/Z; same entry under **Add Modifier**.
 
 ### 📦 Batch tools
 
-- **Batch OBJ export**: export selected meshes with **origin/coordinate** metadata as implemented in `operators_export`.
-- **Batch rename** (default `Ctrl+F`): **regex** find/replace on object names.
-- **Batch materials**: apply to selection, clean up slots, remove unused materials; optional **material sync** in scene **misc** settings (e.g. base color, metallic, roughness) for consistent look across objects.
+**Why**: Exporting, renaming, and fixing materials are **repeat asset tasks**. Defaults make you redo the same actions per object. Here: multi-selection **batch OBJ**, **regex rename** (`Ctrl+F`), batch materials / cleanup / optional channel sync.
 
 ### 🔧 2D kinematics solver
 
-- **Newton–Raphson**-style iteration for **2D planar** linkages.
-- **Revolute** and **prismatic** joints; drivers, sliders, and limit-related helpers.
-- **Demo scenes** (e.g. toggle clamp) to learn the workflow.
-- **NumPy** is optional but recommended for heavier solves and large meshes.
+**Why**: Blender targets animation/rigging—there’s **no** planar linkage solver for mechanisms. For linkages and fixtures, this runs **2D iterative solving** in-scene with drivers, sliders, and demo files.
+
+- Revolute/prismatic joints, limits; **NumPy** optional for speed.
 
 ### 🎨 Other tools
 
-- **WYSIWYG viewport render**: temporary **Standard** view transform for closer match to final output (see **View** menu entries added by the add-on).
-- **Viewport FPS overlay** for frame-rate monitoring.
-- **Performance stress test** spawns many objects to stress Blender.
-- **One-click mesh optimization** for common cleanup (see operator labels).
-- **Smart numpad period**: **single click** frames the view; **double click** can focus the **outliner** (see `operators_object`).
+**Why**: When viewport and final render use **different color management**, material tweaks look wrong in the viewport—**Standard** WYSIWYG preview fixes that; the rest are small quality-of-life tools.
+
+- **WYSIWYG viewport** (View menu): temporary match to output.
+- **FPS overlay**, **stress test**, **one-click cleanup**, **numpad .** smart frame (optional outliner sync).
 
 ---
 
