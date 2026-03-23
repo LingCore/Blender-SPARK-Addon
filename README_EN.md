@@ -2,7 +2,7 @@
 
 **SPARK** — **S**mart **P**recision **A**lignment, **R**endering & **K**inematics
 
-> Pulls scattered viewport workflows into a **pie menu + a few hotkeys**, and fills gaps Blender doesn’t cover out of the box (saved measurements, batch asset ops, 2D linkage solving, etc.).
+> Tools are grouped behind a **pie menu + hotkeys** (`ui.py` / `__init__.py`). The add-on also covers workflows Blender doesn’t ship or makes tedious: persistent measurements, batch OBJ with origin metadata, 2D linkage solving, and **OpenGL viewport capture vs Filmic/AgX** mismatch.
 
 **简体中文文档：** [README.md](README.md)
 
@@ -14,42 +14,55 @@
 
 ---
 
-## ✨ Features
+## ✨ Why each feature exists (matches the code)
 
 ### 📐 Smart measurement & annotations
 
-**Why**: Built-in measure tools are ephemeral—hard to keep in the scene for reference. Here, common dimensions become **persistent, stylable** viewport labels that can track edits where applicable.
+**In code**: `annotation_core` / `annotation.py` store labels in the scene and persist with the file; `operators_measure.py` creates/updates annotations and can refresh in edit mode.
 
-- Distances, angles, radius/diameter, area, perimeter, arc length; saved in the `.blend`; prefs for auto save/load, fonts, culling.
+**Why**: Built-in measure tools don’t stay in the scene as reference. This adds **saved, styleable, clearable** viewport labels.
 
-### 🎯 Precise alignment & transform
+### 🎯 Alignment & high-precision transform
 
-**Why**: Alignment is spread across menus; doing min/center/max and even spacing on many objects takes repeated clicks. This groups those workflows and shows **full-precision** transform readouts so values match external references.
+**In code**: `operators_align.py` aligns to the active object using **bbox min/max/center/bottom/top** references; `TRANSFORM_PT_precise_panel` in `ui.py` uses `utils.format_value` for **full-precision** readouts (not truncated).
 
-- Object/vertex align, bottom, flatten, align to edge, distribute; optional origin-only sync.
+**Why**: Common alignments like “sit objects on the floor” are many clicks by hand; precise numbers help match external dimensions.
 
-### 🪞 Mirror plus (default `Ctrl+M`)
+### 🪞 Mirror plus (`Ctrl+M`, overrides the default mirror binding)
 
-**Why**: Blender already mirrors—but **adding a modifier, picking an axis, or duplicating first** is still several steps. This **one-shot** picks **modifier-only** vs **duplicate then mirror**, tied to the pie menu and `Ctrl+M`, so symmetry workflows stay short.
+**In code**: `OBJECT_OT_mirror_plus` in `operators_object.py`.
 
-- X/Y/Z; same entry under **Add Modifier**.
+- **Modifier only**: batch-add Mirror for selected meshes, with **`mirror_object`** pointing at a **reference object**—the mirror plane follows that object, not only the mesh local axis; **Clip / merge** are optional.
+- **Copy & mirror**: duplicate → temporary Mirror → **`bake_modifiers_to_mesh`** → **`delete_side_by_plane_world`** (one side removed) → optional **`move_origin_keep_world_mesh`**. Result is **real mesh** without a live Mirror modifier.
 
-### 📦 Batch tools
+**Why not “just use Blender mirror”**: fewer manual steps; **copy & mirror** is explicitly a **bake + bisect** path for export, subdivision, or avoiding long-lived Mirror **merge/seam** shading and center-edge topology issues (often what people call “artifacts” on the mirror plane—the repo doesn’t use that word; the logic is `bake` + `delete_side`).
 
-**Why**: Exporting, renaming, and fixing materials are **repeat asset tasks**. Defaults make you redo the same actions per object. Here: multi-selection **batch OBJ**, **regex rename** (`Ctrl+F`), batch materials / cleanup / optional channel sync.
+### 📦 Batch export / rename / materials
 
-### 🔧 2D kinematics solver
+**In code**: `operators_export.py` (batch OBJ, optional **origin info** file); `OBJECT_OT_batch_rename` (regex + **name conflict** modes); `operators_material.py` (batch apply, slot cleanup, unused purge, optional **material sync** via `depsgraph_update_post`).
 
-**Why**: Blender targets animation/rigging—there’s **no** planar linkage solver for mechanisms. For linkages and fixtures, this runs **2D iterative solving** in-scene with drivers, sliders, and demo files.
+**Why**: Repeating the same export/rename/material ops per object is slow.
 
-- Revolute/prismatic joints, limits; **NumPy** optional for speed.
+### 🔧 2D kinematics
 
-### 🎨 Other tools
+**In code**: `operators_kinematics.py` (module header): planar linkages, **Newton–Raphson**, slider drivers, **driver limit** search, demo scenes (e.g. toggle clamp).
 
-**Why**: When viewport and final render use **different color management**, material tweaks look wrong in the viewport—**Standard** WYSIWYG preview fixes that; the rest are small quality-of-life tools.
+**Why**: Blender has no built-in planar linkage solver for fixtures and 2D mechanisms.
 
-- **WYSIWYG viewport** (View menu): temporary match to output.
-- **FPS overlay**, **stress test**, **one-click cleanup**, **numpad .** smart frame (optional outliner sync).
+### 🎨 WYSIWYG viewport render
+
+**In code**: `operators_render.py` header: default **`bpy.ops.render.opengl`** under Filmic/AgX **does not match** what you see in the viewport; the operator **temporarily switches `view_settings` to Standard** for the capture, then you can **restore** previous settings.
+
+**Why**: Color-matching when comparing viewport and OpenGL renders during look-dev.
+
+### Other tools
+
+| Feature | In code | One-liner |
+|---------|---------|-----------|
+| **FPS overlay** | `fps_overlay.py` | Modal timer + sliding average so FPS updates even when the view is still. |
+| **Perf test** | `operators_perftest.py` | Many random shaded cubes + random motion for a rough stress test. |
+| **One-click optimize** | `operators_optimize.py` | Merge by distance, delete interior faces, dissolve degenerate, decimate, etc. in one op. |
+| **Smart numpad .** | `BOFU_OT_smart_numpad_period` | Single click: `view_selected`; double: **Outliner** `show_active`. |
 
 ---
 
@@ -109,7 +122,7 @@
 |-----------|--------|
 | **Blender** | ≥ 4.2 (matches `bl_info`). |
 | **Python** | Bundled with Blender. |
-| **NumPy** | **Optional**; recommended for measurement and kinematics performance. |
+| **NumPy** | **Optional**; measurement / kinematics use it when available for heavy data. |
 
 ---
 
