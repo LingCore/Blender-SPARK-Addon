@@ -345,6 +345,12 @@ class PerfTestSettings(PropertyGroup):
         description="已创建的测试立方体数量",
         default=0
     )
+    fps_auto_enabled_for_perftest: BoolProperty(
+        name="",
+        description="本次运行是否由性能测试自动打开了视口 FPS（停止时仅在此为真时关闭）",
+        default=False,
+        options={'HIDDEN'},
+    )
 
 
 # ==================== 类注册列表 ====================

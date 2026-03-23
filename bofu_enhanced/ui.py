@@ -271,10 +271,10 @@ class BOFU_OT_popup_material_menu(Operator):
         return {'FINISHED'}
 
 
-# ==================== 性能测试 Header 绘制 ====================
+# ==================== 性能测试：第二行工具标题栏绘制 ====================
 
 def draw_perftest_header(self, context):
-    """在 3D 视口 Header 尾部绘制性能测试按钮"""
+    """在 3D 视口第二行（VIEW3D_HT_tool_header / TOOL_HEADER）绘制性能测试按钮，不占第一行主标题栏。"""
     has_settings = hasattr(context.scene, 'perftest_settings')
     if not has_settings:
         return

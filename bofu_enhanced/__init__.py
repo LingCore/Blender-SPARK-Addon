@@ -279,12 +279,13 @@ def register():
         pass
     bpy.types.VIEW3D_MT_view.append(operators_render.menu_func_render)
     
-    # 9.5 添加性能测试按钮到 3D 视口 Header
-    try:
-        bpy.types.VIEW3D_HT_header.remove(ui.draw_perftest_header)
-    except (ValueError, RuntimeError):
-        pass
-    bpy.types.VIEW3D_HT_header.append(ui.draw_perftest_header)
+    # 9.5 性能测试按钮：挂在第二行「工具标题栏」VIEW3D_HT_tool_header，不占第一行主标题栏
+    for _hdr in (bpy.types.VIEW3D_HT_header, bpy.types.VIEW3D_HT_tool_header):
+        try:
+            _hdr.remove(ui.draw_perftest_header)
+        except (ValueError, RuntimeError):
+            pass
+    bpy.types.VIEW3D_HT_tool_header.prepend(ui.draw_perftest_header)
     
     # 10. 注册快捷键
     wm = bpy.context.window_manager
@@ -372,11 +373,12 @@ def unregister():
     except (ValueError, RuntimeError):
         pass
     
-    # 5.5 移除性能测试 Header 按钮
-    try:
-        bpy.types.VIEW3D_HT_header.remove(ui.draw_perftest_header)
-    except (ValueError, RuntimeError, AttributeError):
-        pass
+    # 5.5 移除性能测试按钮（第一行 / 第二行均尝试移除，兼容旧版注册方式）
+    for _hdr in (bpy.types.VIEW3D_HT_header, bpy.types.VIEW3D_HT_tool_header):
+        try:
+            _hdr.remove(ui.draw_perftest_header)
+        except (ValueError, RuntimeError, AttributeError):
+            pass
     
     # 6. 移除镜像菜单
     if hasattr(bpy.types, "OBJECT_MT_modifier_add_generate"):

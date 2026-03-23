@@ -26,6 +26,32 @@ MOVE_SPEED = 0.05        # 每帧最大随机位移 (m)
 TIMER_INTERVAL = 0.016   # Modal timer 间隔 (~60fps)
 
 
+def _ensure_fps_for_perftest(context):
+    """若当前未开启视口 FPS，则自动开启并记录，便于停止时恢复。"""
+    scene = context.scene
+    if not hasattr(scene, "perftest_settings") or not hasattr(scene, "misc_settings"):
+        return
+    pt = scene.perftest_settings
+    misc = scene.misc_settings
+    if misc.show_viewport_fps:
+        pt.fps_auto_enabled_for_perftest = False
+    else:
+        pt.fps_auto_enabled_for_perftest = True
+        misc.show_viewport_fps = True
+
+
+def _restore_fps_after_perftest(context):
+    """若 FPS 是开始测试时自动打开的，则关闭；用户原本就开的则不动。"""
+    scene = context.scene
+    if not hasattr(scene, "perftest_settings") or not hasattr(scene, "misc_settings"):
+        return
+    pt = scene.perftest_settings
+    if not pt.fps_auto_enabled_for_perftest:
+        return
+    pt.fps_auto_enabled_for_perftest = False
+    scene.misc_settings.show_viewport_fps = False
+
+
 # ==================== 辅助函数 ====================
 
 def cleanup_perftest_objects():
@@ -203,6 +229,8 @@ class BOFU_OT_perftest_start(Operator):
             self.report({'WARNING'}, "没有测试立方体，请先创建模型")
             return {'CANCELLED'}
 
+        _ensure_fps_for_perftest(context)
+
         # 注册 modal timer
         wm = context.window_manager
         self._timer = wm.event_timer_add(TIMER_INTERVAL, window=context.window)
@@ -226,6 +254,7 @@ class BOFU_OT_perftest_start(Operator):
         self._cleanup(context)
         if hasattr(context.scene, 'perftest_settings'):
             context.scene.perftest_settings.is_running = False
+        _restore_fps_after_perftest(context)
 
 
 class BOFU_OT_perftest_stop(Operator):
@@ -244,6 +273,8 @@ class BOFU_OT_perftest_stop(Operator):
         # 设置 is_running = False，modal 下一帧会自行退出
         if hasattr(context.scene, 'perftest_settings'):
             context.scene.perftest_settings.is_running = False
+
+        _restore_fps_after_perftest(context)
 
         self.report({'INFO'}, "性能测试已停止")
         return {'FINISHED'}
