@@ -2,7 +2,7 @@
 
 **SPARK** — **S**mart **P**recision **A**lignment, **R**endering & **K**inematics
 
-> Tools are grouped behind a **pie menu + hotkeys** (`ui.py` / `__init__.py`). The add-on also covers workflows Blender doesn’t ship or makes tedious: persistent measurements, batch OBJ with origin metadata, 2D linkage solving, and **OpenGL viewport capture vs Filmic/AgX** mismatch.
+> Common tools live behind a **pie menu + hotkeys**. The add-on also fills gaps Blender doesn’t provide or makes painful: measurements that save with the file, batch OBJ export with optional origin metadata, 2D linkage solving, and fixing **Filmic/AgX** look-dev where the viewport and **OpenGL render** don’t match.
 
 **简体中文文档：** [README.md](README.md)
 
@@ -14,55 +14,47 @@
 
 ---
 
-## ✨ Why each feature exists (matches the code)
+## ✨ Features
 
 ### 📐 Smart measurement & annotations
 
-**In code**: `annotation_core` / `annotation.py` store labels in the scene and persist with the file; `operators_measure.py` creates/updates annotations and can refresh in edit mode.
+Built-in measure tools don’t stay in the scene as a reference. Here, results are **viewport labels** that **save with the file**, can be cleared, and respect style settings; in edit mode, relevant labels can track geometry changes.
 
-**Why**: Built-in measure tools don’t stay in the scene as reference. This adds **saved, styleable, clearable** viewport labels.
+- Distances, angles, radius/diameter, area, perimeter, arc length; prefs for auto save/load, fonts, and distance culling.
 
 ### 🎯 Alignment & high-precision transform
 
-**In code**: `operators_align.py` aligns to the active object using **bbox min/max/center/bottom/top** references; `TRANSFORM_PT_precise_panel` in `ui.py` uses `utils.format_value` for **full-precision** readouts (not truncated).
+Aligning many objects (bottom to floor, even spacing, etc.) gets click-heavy with defaults. This groups several align modes in one place. The **Transform (enhanced)** sidebar shows **full-precision** numbers so you can match drawings or external data. Optional origin sync when you use origin-only workflows.
 
-**Why**: Common alignments like “sit objects on the floor” are many clicks by hand; precise numbers help match external dimensions.
+- Object/vertex align, bottom align, flatten, align to edge, distribute.
 
-### 🪞 Mirror plus (`Ctrl+M`, overrides the default mirror binding)
+### 🪞 Mirror plus (`Ctrl+M`)
 
-**In code**: `OBJECT_OT_mirror_plus` in `operators_object.py`.
+Blender already has Mirror—but batching objects, using **another object as the mirror plane**, or switching between **modifier-only** and **duplicate-then-mirror** still takes many steps, so this wraps them behind one operator.
 
-- **Modifier only**: batch-add Mirror for selected meshes, with **`mirror_object`** pointing at a **reference object**—the mirror plane follows that object, not only the mesh local axis; **Clip / merge** are optional.
-- **Copy & mirror**: duplicate → temporary Mirror → **`bake_modifiers_to_mesh`** → **`delete_side_by_plane_world`** (one side removed) → optional **`move_origin_keep_world_mesh`**. Result is **real mesh** without a live Mirror modifier.
-
-**Why not “just use Blender mirror”**: fewer manual steps; **copy & mirror** is explicitly a **bake + bisect** path for export, subdivision, or avoiding long-lived Mirror **merge/seam** shading and center-edge topology issues (often what people call “artifacts” on the mirror plane—the repo doesn’t use that word; the logic is `bake` + `delete_side`).
+- **Modifier only**: batch Mirror on a selection; the plane comes from a **mirror object** (any reference), not only the mesh’s own axes; **clip / merge** on the seam are optional.
+- **Copy & mirror**: duplicate → temporary mirror → **bake to real mesh** → **delete geometry on one side of the plane** → optionally **move the origin** to the mirrored side. You end up with **no Mirror modifier left**—handy for subdivision, export, or avoiding long-lived mirror **seam shading and mid-edge topology** issues.
 
 ### 📦 Batch export / rename / materials
 
-**In code**: `operators_export.py` (batch OBJ, optional **origin info** file); `OBJECT_OT_batch_rename` (regex + **name conflict** modes); `operators_material.py` (batch apply, slot cleanup, unused purge, optional **material sync** via `depsgraph_update_post`).
-
-**Why**: Repeating the same export/rename/material ops per object is slow.
+Renaming, exporting OBJ, and assigning materials doesn’t scale: you repeat the same work per asset. This adds **batch OBJ** (optional **origin info** sidecar), **regex rename** with conflict handling (skip / replace / suffix), **batch materials** (apply, tidy slots, purge unused), and optional **channel sync** against the active material.
 
 ### 🔧 2D kinematics
 
-**In code**: `operators_kinematics.py` (module header): planar linkages, **Newton–Raphson**, slider drivers, **driver limit** search, demo scenes (e.g. toggle clamp).
-
-**Why**: Blender has no built-in planar linkage solver for fixtures and 2D mechanisms.
+Blender doesn’t ship a **planar linkage solver** for fixtures and mechanisms. This adds **2D** solving (e.g. Newton–Raphson), joints, drivers, limits, and demo scenes—for **2D linkages**, not character rigging.
 
 ### 🎨 WYSIWYG viewport render
 
-**In code**: `operators_render.py` header: default **`bpy.ops.render.opengl`** under Filmic/AgX **does not match** what you see in the viewport; the operator **temporarily switches `view_settings` to Standard** for the capture, then you can **restore** previous settings.
-
-**Why**: Color-matching when comparing viewport and OpenGL renders during look-dev.
+With **Filmic / AgX** view transforms, what you **see in the viewport** and what you get from **viewport OpenGL render** often **don’t match**, which misleads material work. This tool **temporarily switches to Standard** for that render, then you **restore** color settings from the menu.
 
 ### Other tools
 
-| Feature | In code | One-liner |
-|---------|---------|-----------|
-| **FPS overlay** | `fps_overlay.py` | Modal timer + sliding average so FPS updates even when the view is still. |
-| **Perf test** | `operators_perftest.py` | Many random shaded cubes + random motion for a rough stress test. |
-| **One-click optimize** | `operators_optimize.py` | Merge by distance, delete interior faces, dissolve degenerate, decimate, etc. in one op. |
-| **Smart numpad .** | `BOFU_OT_smart_numpad_period` | Single click: `view_selected`; double: **Outliner** `show_active`. |
+| Feature | What it does |
+|---------|----------------|
+| **FPS overlay** | Live FPS in the corner; updates even when nothing moves. |
+| **Perf test** | Many random shaded cubes moving randomly—rough stress test. |
+| **One-click optimize** | Merge by distance, delete interior faces, dissolve degenerate geometry, decimate—one pass. |
+| **Smart numpad .** | Single click: frame selection; double click: **find the active object in the Outliner**. |
 
 ---
 
