@@ -173,11 +173,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit_code = main()
-    
-    # 等待用户按键（方便双击运行时查看结果）
-    if sys.platform == "win32":
-        print()
-        input("按 Enter 键退出...")
-    
-    sys.exit(exit_code)
+    sys.exit(main())

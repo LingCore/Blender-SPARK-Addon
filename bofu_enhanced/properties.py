@@ -331,6 +331,22 @@ class KinematicMechanismProperties(PropertyGroup):
     )
 
 
+# ==================== 性能测试属性组 ====================
+
+class PerfTestSettings(PropertyGroup):
+    """性能测试设置"""
+    is_running: BoolProperty(
+        name="测试运行中",
+        description="性能测试是否正在运行",
+        default=False
+    )
+    cube_count: IntProperty(
+        name="立方体数量",
+        description="已创建的测试立方体数量",
+        default=0
+    )
+
+
 # ==================== 类注册列表 ====================
 
 classes = (
@@ -341,6 +357,7 @@ classes = (
     TransformPlusProperties,
     KinematicJointProperties,
     KinematicMechanismProperties,
+    PerfTestSettings,
 )
 
 
@@ -352,6 +369,7 @@ def register_properties():
     bpy.types.Scene.annotation_settings = bpy.props.PointerProperty(type=AnnotationSettings)
     bpy.types.Scene.misc_settings = bpy.props.PointerProperty(type=MiscSettings)
     bpy.types.Scene.kinematics_props = bpy.props.PointerProperty(type=KinematicMechanismProperties)
+    bpy.types.Scene.perftest_settings = bpy.props.PointerProperty(type=PerfTestSettings)
 
 
 def unregister_properties():
@@ -363,6 +381,7 @@ def unregister_properties():
         'annotation_settings',
         'misc_settings',
         'kinematics_props',
+        'perftest_settings',
     ):
         try:
             delattr(bpy.types.Scene, attr)

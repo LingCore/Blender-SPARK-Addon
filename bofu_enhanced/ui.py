@@ -271,6 +271,41 @@ class BOFU_OT_popup_material_menu(Operator):
         return {'FINISHED'}
 
 
+# ==================== 性能测试 Header 绘制 ====================
+
+def draw_perftest_header(self, context):
+    """在 3D 视口 Header 尾部绘制性能测试按钮"""
+    has_settings = hasattr(context.scene, 'perftest_settings')
+    if not has_settings:
+        return
+
+    settings = context.scene.perftest_settings
+    is_running = settings.is_running
+    has_cubes = settings.cube_count > 0
+
+    layout = self.layout
+    row = layout.row(align=True)
+
+    # 创建模型
+    sub = row.row(align=True)
+    sub.enabled = not is_running
+    sub.operator("bofu.perftest_create", text="创建测试", icon='MESH_CUBE')
+
+    # 开始测试
+    sub = row.row(align=True)
+    sub.enabled = not is_running and has_cubes
+    sub.operator("bofu.perftest_start", text="开始", icon='PLAY')
+
+    # 停止测试
+    sub = row.row(align=True)
+    sub.enabled = is_running
+    sub.operator("bofu.perftest_stop", text="停止", icon='PAUSE')
+
+    # 运行状态指示
+    if is_running:
+        row.label(text="", icon='TIME')
+
+
 # ==================== 面板定义 ====================
 
 class TRANSFORM_PT_precise_panel(Panel):

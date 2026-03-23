@@ -68,6 +68,7 @@ if "config" in locals():
     importlib.reload(operators_render)
     importlib.reload(operators_optimize)
     importlib.reload(operators_demo)
+    importlib.reload(operators_perftest)
     importlib.reload(ui)
 
 from . import config
@@ -88,6 +89,7 @@ from . import operators_kinematics
 from . import operators_render
 from . import operators_optimize
 from . import operators_demo
+from . import operators_perftest
 from . import ui
 
 
@@ -220,6 +222,7 @@ def register():
     all_classes = (
         properties.classes +
         annotation.classes +
+        fps_overlay.classes +
         operators_object.classes +
         operators_transform.classes +
         operators_align.classes +
@@ -230,6 +233,7 @@ def register():
         operators_render.classes +
         operators_optimize.classes +
         operators_demo.classes +
+        operators_perftest.classes +
         ui.classes
     )
     
@@ -273,6 +277,13 @@ def register():
     except (ValueError, RuntimeError):
         pass
     bpy.types.VIEW3D_MT_view.append(operators_render.menu_func_render)
+    
+    # 9.5 添加性能测试按钮到 3D 视口 Header
+    try:
+        bpy.types.VIEW3D_HT_header.remove(ui.draw_perftest_header)
+    except (ValueError, RuntimeError):
+        pass
+    bpy.types.VIEW3D_HT_header.append(ui.draw_perftest_header)
     
     # 10. 注册快捷键
     wm = bpy.context.window_manager
@@ -360,6 +371,12 @@ def unregister():
     except (ValueError, RuntimeError):
         pass
     
+    # 5.5 移除性能测试 Header 按钮
+    try:
+        bpy.types.VIEW3D_HT_header.remove(ui.draw_perftest_header)
+    except (ValueError, RuntimeError, AttributeError):
+        pass
+    
     # 6. 移除镜像菜单
     if hasattr(bpy.types, "OBJECT_MT_modifier_add_generate"):
         try:
@@ -384,6 +401,10 @@ def unregister():
     # 8. 清除材质同步缓存
     operators_material.clear_material_cache()
     
+    # 8.6 清理性能测试对象
+    if 'operators_perftest' in globals():
+        operators_perftest.cleanup_perftest_objects()
+    
     # 9. 清除运动学求解器缓存
     operators_kinematics.invalidate_solver_cache()
     
@@ -394,6 +415,7 @@ def unregister():
     all_classes = (
         properties.classes +
         annotation.classes +
+        fps_overlay.classes +
         operators_object.classes +
         operators_transform.classes +
         operators_align.classes +
@@ -404,6 +426,7 @@ def unregister():
         operators_render.classes +
         operators_optimize.classes +
         operators_demo.classes +
+        (operators_perftest.classes if 'operators_perftest' in globals() else ()) +
         ui.classes
     )
     
