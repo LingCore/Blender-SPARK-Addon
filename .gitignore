@@ -9,7 +9,8 @@ dist/
 build/
 *.egg-info/
 
-# IDE
+# IDE / Cursor（本地技能与配置，不必进仓库）
+.cursor/
 .vscode/
 .idea/
 *.swp
