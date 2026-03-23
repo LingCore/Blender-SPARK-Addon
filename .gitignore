@@ -22,3 +22,6 @@ Thumbs.db
 # Blender
 *.blend1
 *.blend2
+
+# 插件打包 zip（本地用 pack_addon 生成；正式发布请挂到 GitHub Releases，勿提交进仓库）
+blender_spark_addon_v*.zip
