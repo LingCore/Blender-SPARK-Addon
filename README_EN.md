@@ -12,14 +12,6 @@
 
 ---
 
-## 📌 Naming & install layout (avoid confusion)
-
-- **Product name**: **Blender SPARK Addon** / **SPARK** in the add-on list and this repo.
-- **Package folder name**: Blender loads the folder named **`bofu_enhanced`**. Your release `.zip` must contain **`bofu_enhanced` at the top level** (with `__init__.py` inside it). Do **not** install the whole Git repo root as the add-on.
-- **Relation to Blender**: The add-on **adds** operators, menus, and panels in the **3D View**; it does **not** replace Blender core. Disabling the add-on restores default UI such as the transform panel.
-
----
-
 ## ✨ Features
 
 ### 📐 Smart measurement & annotations
