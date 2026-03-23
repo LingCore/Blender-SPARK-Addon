@@ -1,194 +1,156 @@
-<a id="top"></a>
+# ⚡ Blender SPARK Addon
 
-<p align="center">
-  <a href="https://github.com/LingCore/Blender-SPARK-Addon"><img src="https://img.shields.io/badge/SPARK-Smart%20Precision%20Alignment%2C%20Rendering%20%26%20Kinematics-orange?logo=blender&logoColor=white" alt="SPARK"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue" alt="License"></a>
-  <a href="bofu_enhanced/__init__.py"><img src="https://img.shields.io/badge/Version-3.3.1-green" alt="Version"></a>
-  <a href="https://docs.blender.org/manual/en/latest/"><img src="https://img.shields.io/badge/Blender-4.2%2B-lightgrey?logo=blender" alt="Blender"></a>
-</p>
+**SPARK** — **S**mart **P**recision **A**lignment, **R**endering & **K**inematics
 
-<p align="center">
-  <strong>文档语言 / Language</strong><br>
-  <a href="#readme-zh"><img src="https://img.shields.io/badge/简体中文-阅读-red?style=for-the-badge" alt="简体中文"></a>
-  &nbsp;
-  <a href="#readme-en"><img src="https://img.shields.io/badge/English-Read-blue?style=for-the-badge" alt="English"></a>
-</p>
+> 面向 Blender 4.2+ 的视口工作流增强插件：测量与标注、对齐与变换、批量导出与材质、平面机构运动学、视口渲染与性能工具。安装后通过 **饼图菜单** 与 **快捷键** 统一入口调用，避免功能散落在各处菜单里找不到。
+
+**English documentation:** [README_EN.md](README_EN.md)
+
+![Blender](https://img.shields.io/badge/Blender-4.2+-orange?logo=blender&logoColor=white)
+![License](https://img.shields.io/badge/License-GPL--3.0-blue)
+![Version](https://img.shields.io/badge/Version-3.3.1-green)
 
 ---
 
-<a id="readme-zh"></a>
+## 📌 命名与安装包说明（避免歧义）
 
-## 简体中文
+- **对外名称**：本仓库与 Blender 插件列表中显示为 **Blender SPARK Addon**（简称 **SPARK**）。
+- **插件目录名**：Blender 实际加载的文件夹名必须是 **`bofu_enhanced`**。从本仓库打包或安装时，`.zip` 解压后顶层应直接是 **`bofu_enhanced`**，再在里面才是 `__init__.py` 等文件；不要把整个 Git 仓库根目录当插件装进去。
+- **与官方功能的关系**：本插件在 **3D 视图侧栏、菜单、快捷键** 上**追加**操作符与面板，**不**替换 Blender 核心；卸载插件即可恢复默认变换面板等界面行为。
 
-**SPARK**（**S**mart **P**recision **A**lignment, **R**endering & **K**inematics）是基于 Blender 官方 Python API（`bpy`）开发的 **4.2+ 视口工作流增强插件**。安装后在 3D 视图中提供测量与标注、对齐与变换、批量导出与材质、平面机构运动学、视口渲染与性能工具等；所有功能通过统一入口（饼图菜单与快捷键）组织，避免功能散落。
+---
 
-**重要说明（避免歧义）**
+## ✨ 功能一览
 
-| 项目 | 说明 |
+### 📐 智能测量与标注
+
+- **距离与几何量**：两对象原点距离、边长、沿 X/Y/Z 的分轴距离；两边或两面夹角、顶点处角度；圆/弧的半径与直径；面面积、周长、弧长等。
+- **持久化**：标注数据随 `.blend` 存档；可在偏好设置中控制是否随文件自动保存/加载标注。
+- **编辑模式**：在编辑网格时，与顶点/边/面相关的测量会随几何变化更新（具体行为取决于当前标注类型与选择）。
+- **显示**：支持在偏好设置里调节标注字体、颜色、视距裁剪等，减轻复杂场景下的视觉干扰。
+
+### 🎯 精确对齐与变换
+
+- **对齐模式**：对象或顶点多模式对齐（沿 X/Y/Z，对齐到最小/中心/最大等）；快速底部对齐、展平选区、沿某条边方向对齐；在多个对象之间做等距分布。
+- **高精度变换**：提供增强的变换面板读数，显示 **完整浮点精度**，避免默认面板四舍五入后难以核对数值。
+- **原点相关**：可选「仅修改原点」等工作流时，插件可按场景设置同步原点信息（与 `depsgraph` 联动，仅在需要时启用以节省开销）。
+
+### 🪞 镜像增强（默认 `Ctrl+M`）
+
+- 在 **Mirror 修改器** 与 **复制并镜像** 等模式间选择，便于快速做对称或备份再镜像。
+- 支持 **X/Y/Z** 轴向；也可从 **添加修改器** 菜单进入增强镜像入口（与饼图菜单一致）。
+
+### 📦 批量操作
+
+- **批量导出 OBJ**：对选中网格批量导出，支持在导出信息中体现 **原点/坐标** 相关需求（与 `operators_export` 中导出逻辑一致）。
+- **批量重命名**（默认 `Ctrl+F`）：支持 **正则表达式** 查找与替换对象名称，适合批量整理资产命名。
+- **批量材质**：对选中对象 **批量应用** 材质、**整理槽位**、**清理未使用材质**；可在场景 **杂项** 中开启 **材质同步**（如基础色、金属度、粗糙度等通道在符合条件时自动对齐，便于统一材质表现）。
+
+### 🔧 运动学求解器（2D 平面机构）
+
+- 使用 **Newton–Raphson** 类迭代在 **2D 平面** 内求解机构位置。
+- 支持 **旋转关节** 与 **平移关节**；可与 **驱动**、**滑块** 控制配合，并辅助 **极限** 相关计算。
+- 内置 **演示场景**（如肘节夹钳等），便于从零理解工作流。
+- **NumPy**：为可选依赖；安装后可加速大量顶点与数值迭代，运动学求解在复杂场景下更稳、更快。
+
+### 🎨 其他工具
+
+- **所见即所得视口渲染**：临时切换 **Standard** 色彩管理，使视口预览与最终渲染输出在色彩上更一致（入口在 **视图** 菜单等，见插件内菜单项）。
+- **视口 FPS 显示**：在视口叠加显示帧率，便于性能对比与优化。
+- **性能压力测试**：一键生成大量测试物体，用于粗略评估 Blender 与本机在该负载下的表现。
+- **一键模型优化**：快速执行常见清理/优化操作（具体步骤以操作符说明为准）。
+- **智能定位**（小键盘 `·`）：**单击** 将视图聚焦到合适范围；**双击** 可联动 **大纲视图** 定位（与 `operators_object` 中智能定位逻辑一致）。
+
+---
+
+## 🧭 界面与入口（在哪里找功能）
+
+| 入口 | 说明 |
 |------|------|
-| 仓库与发行名 | 仓库与对外名称为 **Blender SPARK Addon** / **SPARK**。 |
-| 插件包目录名 | Blender 识别的插件文件夹名为 **`bofu_enhanced`**（从本仓库安装 zip 时，zip 根目录下应为该文件夹）。 |
-| 与 Blender 内置功能关系 | 本插件**不替换** Blender 核心，仅在侧栏、菜单、快捷键等位置**追加**操作符与面板；部分功能会调整默认变换面板所在标签（卸载插件可恢复）。 |
+| **`` ` `` 键**（重音键，常与 Esc 下方同键） | 打开 **增强工具饼图菜单**，是主功能入口。 |
+| **鼠标侧键**（常见为前进键 / Button4） | 与 `` ` `` 相同，呼出同一饼图菜单。 |
+| **3D 视图侧栏** | 插件提供多个面板（变换增强、测量、对齐、运动学等，随 Blender 版本与布局可能略有差异）。 |
+| **视图（View）菜单** | 含 **所见即所得视口渲染** 等入口。 |
+| **添加修改器菜单** | 含 **镜像（增强）** 等入口。 |
+| **3D 视图 Header** | 提供 **性能测试** 等快捷入口。 |
 
-### 架构与模块（便于贡献者定位）
+---
 
-- **入口与生命周期**：`bofu_enhanced/__init__.py`（注册、快捷键、`depsgraph`/`save`/`load` 处理器、菜单挂载）。
-- **场景与偏好**：`properties.py`（场景级设置）、`preferences.py`（插件偏好：标注样式、自动保存标注等）。
-- **标注**：`annotation_core.py`、`annotation_draw.py`、`annotation.py`（持久化、视口绘制）。
-- **功能操作符**：`operators_*.py`（测量、对齐、导出、材质、运动学、渲染、优化、演示、性能测试等）。
-- **界面**：`ui.py`（饼图、子菜单、侧栏面板）。
-- **打包**：仓库根目录 `pack_addon.py` / `pack_addon.bat` 生成带版本号的 `blender_spark_addon_v*.zip`。
+## 🚀 安装与更新
 
-### 功能概览
+### 方式一：下载发行包（推荐）
 
-**智能测量与标注**  
-两对象原点距离、边长、分轴距离、边/面夹角、顶点角、半径/直径、面面积、周长、弧长等；标注可随 `.blend` 存档；编辑网格时相关标注可随几何更新（受偏好与场景设置约束）。
+1. 打开 [Releases](https://github.com/LingCore/Blender-SPARK-Addon/releases) 下载 `blender_spark_addon_v*.zip`（或由本仓库 `pack_addon.py` 本地生成）。
+2. Blender → **编辑** → **偏好设置** → **插件** → **从磁盘安装**，选中 zip。
+3. 列表中勾选启用 **Blender SPARK Addon**。
 
-**对齐与变换**  
-对象/顶点多模式对齐（轴向与 min/center/max）、底部对齐、展平选区、沿边方向对齐、等距分布；高精度变换面板显示完整浮点精度；可选「仅改原点」时的原点同步逻辑。
+### 方式二：直接使用源码目录
 
-**镜像与对象工具**  
-增强镜像（修改器或复制镜像）、批量重命名（正则）。默认快捷键：`Ctrl+M`、`Ctrl+F`。
+1. 克隆或下载本仓库。
+2. 将 **`bofu_enhanced`** 整个文件夹复制到 Blender 用户插件目录，例如 Windows：
 
-**批量与材质**  
-批量导出 OBJ（含原点信息）、批量应用/整理/清理材质槽；可选材质属性同步（颜色/金属度/粗糙度等，见场景杂项设置）。
+   `%APPDATA%\Blender Foundation\Blender\4.2\scripts\addons\`
 
-**运动学（2D）**  
-平面机构 Newton–Raphson 求解；旋转/平移关节；驱动滑块与极限；含演示场景（如肘节夹钳）。**numpy 可选**，用于大量数值与求解加速。
+3. 在 **偏好设置 → 插件** 中搜索并启用 **Blender SPARK Addon**。
 
-**渲染与视口**  
-「所见即所得」视口预览（临时 Standard 色彩管理，便于与最终输出一致）；视口 FPS 叠加。
+### 版本与兼容性
 
-**其它**  
-一键网格优化、性能压力测试（大量物体）、智能定位（小键盘 `.`：单击居中 / 双击大纲定位）等。
+- 插件 **最低 Blender 版本** 以 `bofu_enhanced/__init__.py` 中 `bl_info["blender"]` 为准（当前为 **4.2+**）。
+- 若你使用 **4.3 / 5.x**，请优先在对应版本下测试；若遇 API 变更，欢迎通过 Issue 反馈。
 
-### 安装
+---
 
-**方式一：发行包（推荐）**  
-在 [Releases](https://github.com/LingCore/Blender-SPARK-Addon/releases) 下载 `blender_spark_addon_v*.zip`（或由 `pack_addon.py` 本地生成）。Blender → **编辑 → 偏好设置 → 插件 → 从磁盘安装**，选中 zip，启用 **Blender SPARK Addon**。zip 内顶层须为 **`bofu_enhanced`** 文件夹。
+## 🎮 快捷键速查
 
-**方式二：源码目录**  
-克隆或下载本仓库，将 **`bofu_enhanced`** 整个文件夹复制到 Blender 用户插件目录，例如 Windows：
-
-`%APPDATA%\Blender Foundation\Blender\4.2\scripts\addons\`
-
-然后在偏好设置中勾选启用。
-
-### 快速上手（快捷键）
-
-| 快捷键 | 作用 |
+| 快捷键 | 功能 |
 |--------|------|
-| `` ` ``（重音键，常与 Esc 下方同键） | 打开 **增强工具饼图菜单**（主入口） |
-| 鼠标侧键（常见为前进键 / Button4） | 同上 |
-| `Ctrl+M` | 镜像（增强） |
-| `Ctrl+F` | 名称批量替换 |
+| `` ` `` / 鼠标侧键 | 打开 **增强工具饼图菜单**（主入口） |
+| `Ctrl + M` | 镜像增强 |
+| `Ctrl + F` | 批量重命名 |
 | 小键盘 `.` | 智能定位 |
 
-更多入口：**视图** 菜单中的视口渲染项、**添加修改器** 菜单中的镜像增强、3D 视图 Header 上的性能测试入口等。
+> 快捷键在 **插件启用** 且 **键位映射未冲突** 时生效；若与其它插件冲突，可在 **偏好设置 → 键位映射** 中搜索 `bofu` / `SPARK` 相关项自行调整。
 
-### 依赖
+---
 
-- **Blender** ≥ 4.2（与 `bl_info` 一致）。
-- **Python**：随 Blender。
-- **numpy**：可选；建议安装以提升大量顶点与运动学计算体验。
+## 📋 依赖说明
 
-### 从源码打包
+| 组件 | 说明 |
+|------|------|
+| **Blender** | ≥ 4.2（与 `bl_info` 一致）。 |
+| **Python** | 使用 Blender 内置解释器即可，无需单独安装。 |
+| **NumPy** | **可选**；建议安装以获得更好的测量与运动学性能。 |
+
+---
+
+## 📦 从源码打包
 
 ```bash
 python pack_addon.py
 ```
 
-或在 Windows 下双击 `pack_addon.bat`。版本号取自 `bofu_enhanced/__init__.py` 中 `bl_info["version"]`。
-
-### 许可证
-
-[GPL-3.0](LICENSE)
-
-<p align="right"><a href="#top"><strong>↑ 返回顶部</strong></a> &nbsp;|&nbsp; <a href="#readme-en"><strong>English →</strong></a></p>
+或在 Windows 下双击 **`pack_addon.bat`**。生成的 zip 文件名包含版本号，版本取自 **`bofu_enhanced/__init__.py`** 中的 **`bl_info["version"]`**。
 
 ---
 
-<a id="readme-en"></a>
+## 🗂 源码结构（给贡献者）
 
-## English
-
-**SPARK** (**S**mart **P**recision **A**lignment, **R**endering & **K**inematics) is a **Blender 4.2+ viewport workflow add-on** built on Blender’s Python API (`bpy`). After installation it adds measurement & annotations, alignment & transform helpers, batch export & material tools, a 2D planar kinematics solver, viewport rendering helpers, and performance utilities—all reachable from a **single pie menu and hotkeys**.
-
-**Disambiguation**
-
-| Topic | Detail |
-|--------|--------|
-| Product name | **Blender SPARK Addon** / **SPARK**. |
-| Add-on package folder | The folder Blender loads is **`bofu_enhanced`** (the release `.zip` must contain this folder at the top level). |
-| Relation to Blender | This add-on **extends** Blender via operators, menus, and panels; it does **not** replace core Blender. Some UI moves the default transform panel to another tab; disabling the add-on restores it. |
-
-### Architecture (for contributors)
-
-- **Lifecycle**: `bofu_enhanced/__init__.py` (registration, keymaps, handlers, menu hooks).
-- **Data**: `properties.py`, `preferences.py`.
-- **Annotations**: `annotation_*.py`, `annotation.py`.
-- **Operators**: `operators_*.py` (measure, align, export, materials, kinematics, render, optimize, demo, perf test, …).
-- **UI**: `ui.py`.
-- **Packaging**: `pack_addon.py` / `pack_addon.bat` → `blender_spark_addon_v*.zip`.
-
-### Feature summary
-
-**Measurement & annotations** — Distances, edge lengths, per-axis deltas, angles, vertex angles, radius/diameter, face area, perimeter, arc length; saved in the `.blend`; updates with mesh edits where applicable.
-
-**Alignment & transform** — Object/vertex alignment modes, bottom align, flatten selection, align to edge, distribute spacing; high-precision transform readout; optional origin sync when using origin-only workflows.
-
-**Mirroring & object tools** — Enhanced mirror (modifier or duplicated mirror), batch rename (regex). Defaults: `Ctrl+M`, `Ctrl+F`.
-
-**Batch & materials** — Batch OBJ export with origin metadata; batch assign / clean / organize material slots; optional live sync for common material channels (see scene misc settings).
-
-**Kinematics (2D)** — Planar linkage solver (Newton–Raphson), revolute & prismatic joints, drivers & limits, demo scenes. **NumPy optional** but recommended for heavier solves.
-
-**Rendering & viewport** — WYSIWYG viewport preview (temporary Standard view transform), FPS overlay.
-
-**Other** — One-click mesh cleanup, performance stress test, smart numpad period navigation.
-
-### Installation
-
-**Release zip (recommended)** — Download `blender_spark_addon_v*.zip` from [Releases](https://github.com/LingCore/Blender-SPARK-Addon/releases) (or build locally). **Edit → Preferences → Add-ons → Install**, select the zip, enable **Blender SPARK Addon**. The archive root must contain **`bofu_enhanced`**.
-
-**From source folder** — Copy the **`bofu_enhanced`** folder into the user add-ons path, e.g. on Windows:
-
-`%APPDATA%\Blender Foundation\Blender\4.2\scripts\addons\`
-
-Then enable the add-on in Preferences.
-
-### Quick start (hotkeys)
-
-| Hotkey | Action |
-|--------|--------|
-| `` ` `` (Accent Grave) | **Enhanced tools pie menu** (main hub) |
-| Mouse side button (often Button4) | Same as above |
-| `Ctrl+M` | Enhanced mirror |
-| `Ctrl+F` | Batch rename |
-| Numpad `.` | Smart frame / outliner focus |
-
-Additional entries: **View** menu (WYSIWYG viewport render), **Add Modifier** menu (mirror plus), 3D View header (perf test), etc.
-
-### Requirements
-
-- **Blender** ≥ 4.2 (matches `bl_info`).
-- **Python**: bundled with Blender.
-- **NumPy**: optional; recommended for large meshes and kinematics.
-
-### Build from source
-
-```bash
-python pack_addon.py
-```
-
-Version is read from `bl_info["version"]` in `bofu_enhanced/__init__.py`.
-
-### License
-
-[GPL-3.0](LICENSE)
-
-<p align="right"><a href="#top"><strong>↑ Back to top</strong></a> &nbsp;|&nbsp; <a href="#readme-zh"><strong>← 简体中文</strong></a></p>
+| 路径 | 职责 |
+|------|------|
+| `bofu_enhanced/__init__.py` | 注册/注销、快捷键、`depsgraph` / 保存 / 加载 处理器、菜单挂载 |
+| `bofu_enhanced/properties.py` | 场景 PropertyGroup |
+| `bofu_enhanced/preferences.py` | 插件偏好（标注样式、自动保存标注等） |
+| `bofu_enhanced/annotation*.py` | 标注核心、绘制与持久化 |
+| `bofu_enhanced/operators_*.py` | 各功能操作符 |
+| `bofu_enhanced/ui.py` | 饼图、子菜单、面板 |
+| `pack_addon.py` | 打包脚本 |
 
 ---
 
-**Made with care by [LingCore](https://github.com/LingCore)**
+## 📄 许可证
+
+[GPL-3.0](LICENSE)
+
+---
+
+**Made with ❤️ by [LingCore](https://github.com/LingCore)**
