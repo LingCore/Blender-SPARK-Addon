@@ -8,7 +8,7 @@
 
 ![Blender](https://img.shields.io/badge/Blender-4.2+-orange?logo=blender&logoColor=white)
 ![License](https://img.shields.io/badge/License-GPL--3.0-blue)
-![Version](https://img.shields.io/badge/Version-3.3.1-green)
+![Version](https://img.shields.io/badge/Version-3.3.2-green)
 
 ![SPARK 插件预览](docs/preview.png)
 
