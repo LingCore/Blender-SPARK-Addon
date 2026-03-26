@@ -330,6 +330,34 @@ def register():
             type="NUMPAD_PERIOD", value="PRESS",
         )
         addon_keymaps.append((km, kmi))
+        
+        # Alt+R: 清除旋转（增强版：自动保存快照后再归零）
+        km = kc.keymaps.new(name="Object Mode", space_type="EMPTY")
+        kmi = km.keymap_items.new(
+            operators_transform.TRANSFORM_OT_clear_rotation_enhanced.bl_idname,
+            type="R", value="PRESS", alt=True,
+        )
+        addon_keymaps.append((km, kmi))
+        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
+        kmi = km.keymap_items.new(
+            operators_transform.TRANSFORM_OT_clear_rotation_enhanced.bl_idname,
+            type="R", value="PRESS", alt=True,
+        )
+        addon_keymaps.append((km, kmi))
+        
+        # Alt+Shift+R: 还原旋转快照
+        km = kc.keymaps.new(name="Object Mode", space_type="EMPTY")
+        kmi = km.keymap_items.new(
+            operators_transform.TRANSFORM_OT_restore_rotation.bl_idname,
+            type="R", value="PRESS", alt=True, shift=True,
+        )
+        addon_keymaps.append((km, kmi))
+        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
+        kmi = km.keymap_items.new(
+            operators_transform.TRANSFORM_OT_restore_rotation.bl_idname,
+            type="R", value="PRESS", alt=True, shift=True,
+        )
+        addon_keymaps.append((km, kmi))
     
     # 10. 移动默认变换面板到隐藏标签页
     try:

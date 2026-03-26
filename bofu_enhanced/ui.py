@@ -11,6 +11,7 @@ from bpy.types import Menu, Panel, Operator
 from mathutils import Vector
 
 from .utils import format_value
+from .operators_transform import _has_saved_rotation
 
 
 # ==================== 饼图菜单 ====================
@@ -465,6 +466,18 @@ class TRANSFORM_PT_precise_panel(Panel):
         row.operator("transform.copy_rotation", text="旋转 (点击复制)", icon='ORIENTATION_GIMBAL', emboss=True)
         col.separator(factor=0.5)
         col.prop(obj, "rotation_mode", text="")
+        col.separator(factor=0.5)
+        
+        # 旋转快照按钮
+        snap_row = col.row(align=True)
+        snap_row.operator("transform.save_rotation", text="保存旋转", icon='FILE_TICK')
+        if _has_saved_rotation(obj):
+            snap_row.operator("transform.restore_rotation", text="还原旋转", icon='LOOP_BACK')
+            snap_row.operator("transform.clear_saved_rotation", text="", icon='X')
+        else:
+            sub = snap_row.row(align=True)
+            sub.enabled = False
+            sub.operator("transform.restore_rotation", text="还原旋转", icon='LOOP_BACK')
         col.separator(factor=0.5)
         
         sub = col.column(align=True)
