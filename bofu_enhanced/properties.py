@@ -157,6 +157,14 @@ class MiscSettings(PropertyGroup):
         description="开启后，视图显示和 Principled BSDF 节点的颜色、金属度、糙度会自动双向同步",
         default=True
     )
+    paste_merge_duplicate_materials: BoolProperty(
+        name="粘贴合并同名材质",
+        description=(
+            "开启后，当工程中已存在「基础名」材质时，自动将「基础名.001」等形式的后缀材质合并到该基础材质（跨工程粘贴时复用当前文件材质）。"
+            "若你故意同时使用「材质」与「材质.001」作为两套不同材质，请关闭此项或避免使用 .001 这类后缀命名"
+        ),
+        default=True,
+    )
     show_viewport_fps: BoolProperty(
         name="视口帧率",
         description="在 3D 视口左上角显示实时帧率（FPS）",

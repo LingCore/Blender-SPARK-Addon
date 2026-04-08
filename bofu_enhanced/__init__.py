@@ -209,6 +209,27 @@ def material_sync_handler(scene, depsgraph):
         logger.debug("材质同步异常", exc_info=True)
 
 
+@persistent
+def paste_material_merge_handler(scene, depsgraph):
+    """粘贴后合并「基础名.001」到已存在的「基础名」材质（跨工程粘贴复用当前文件材质）"""
+    try:
+        if not scene or not hasattr(scene, "misc_settings"):
+            return
+        if not scene.misc_settings.paste_merge_duplicate_materials:
+            return
+        has_relevant_update = False
+        for update in depsgraph.updates:
+            if isinstance(update.id, (bpy.types.Material, bpy.types.Object)):
+                has_relevant_update = True
+                break
+        if not has_relevant_update:
+            return
+        if operators_material.merge_duplicate_suffixed_materials():
+            operators_material.schedule_paste_merge_notice_report()
+    except Exception:
+        logger.debug("粘贴合并材质异常", exc_info=True)
+
+
 # ==================== 注册/注销 ====================
 
 def register():
@@ -250,6 +271,9 @@ def register():
     # 5. 注册材质同步处理器
     if material_sync_handler not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(material_sync_handler)
+    # 5.1 粘贴合并同名材质（在材质同步之后执行）
+    if paste_material_merge_handler not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(paste_material_merge_handler)
     
     # 6. 注册标注持久化处理器
     if save_annotations_handler not in bpy.app.handlers.save_pre:
@@ -425,6 +449,8 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(transform_plus_origin_sync)
     if material_sync_handler in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(material_sync_handler)
+    if paste_material_merge_handler in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(paste_material_merge_handler)
     
     # 8.5 移除 FPS 覆盖层
     fps_overlay.disable_fps_overlay()

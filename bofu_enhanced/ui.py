@@ -70,6 +70,8 @@ def _draw_material_sync_ui(layout, context):
             row = layout.row()
             row.alert = True
             row.label(text="颜色/金属度/糙度 自动同步中", icon='LINKED')
+        pm_icon = 'CHECKBOX_HLT' if settings.paste_merge_duplicate_materials else 'CHECKBOX_DEHLT'
+        layout.prop(settings, "paste_merge_duplicate_materials", icon=pm_icon)
 
 
 class VIEW3D_MT_material_tools(Menu):

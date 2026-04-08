@@ -11,6 +11,7 @@ bofu_enhanced/operators_material.py
 
 import bpy
 import logging
+import re
 from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
@@ -591,6 +592,101 @@ _CACHE_CLEANUP_INTERVAL = 50  # 每 50 次缓存操作执行一次清理
 
 # 防止递归同步的标志
 _syncing = False
+
+# 粘贴合并同名材质：防止 depsgraph 递归
+_paste_merge_in_progress = False
+
+# 状态栏提示：防抖（depsgraph 可能连续触发多次）
+_paste_merge_notice_timer_pending = False
+
+_MAT_SUFFIX_RE = re.compile(r"^(.+)\.(\d{3})$")
+
+
+def merge_duplicate_suffixed_materials():
+    """
+    将名称符合「基础名.001」且已存在「基础名」的材质合并到基础材质（user_remap），并删除已无用户的后缀块。
+
+    Returns:
+        bool: 是否执行了至少一次 user_remap（用于状态栏提示）。
+    """
+    global _paste_merge_in_progress
+    if _paste_merge_in_progress:
+        return False
+
+    has_candidate = False
+    for mat in bpy.data.materials:
+        if _MAT_SUFFIX_RE.match(mat.name):
+            has_candidate = True
+            break
+    if not has_candidate:
+        return False
+
+    _paste_merge_in_progress = True
+    did_remap = False
+    try:
+        for mat in list(bpy.data.materials):
+            m = _MAT_SUFFIX_RE.match(mat.name)
+            if not m:
+                continue
+            base_name = m.group(1)
+            base = bpy.data.materials.get(base_name)
+            if base is None or base == mat:
+                continue
+            try:
+                mat.user_remap(base)
+                did_remap = True
+            except RuntimeError as e:
+                logger.debug("user_remap 失败: %s", e)
+
+        for mat in list(bpy.data.materials):
+            m = _MAT_SUFFIX_RE.match(mat.name)
+            if not m:
+                continue
+            base_name = m.group(1)
+            if bpy.data.materials.get(base_name) is None:
+                continue
+            if mat.users == 0 and not mat.use_fake_user:
+                try:
+                    bpy.data.materials.remove(mat)
+                except RuntimeError as e:
+                    logger.debug("移除重复材质失败: %s", e)
+
+        if did_remap:
+            clear_material_cache()
+        return did_remap
+    finally:
+        _paste_merge_in_progress = False
+
+
+def _paste_merge_draw_popup(self, context):
+    layout = self.layout
+    layout.label(text="已复用当前工程中的同名材质")
+    layout.label(text="粘贴产生的 .001 等重复材质已自动合并")
+    layout.separator()
+    layout.label(text="关闭方式：` 键饼图 → 材质工具 → 粘贴合并同名材质", icon='CHECKBOX_DEHLT')
+
+
+def schedule_paste_merge_notice_report():
+    """合并成功后延迟弹出 Blender 界面提示。"""
+    global _paste_merge_notice_timer_pending
+    if _paste_merge_notice_timer_pending:
+        return
+    _paste_merge_notice_timer_pending = True
+
+    def _timer():
+        global _paste_merge_notice_timer_pending
+        _paste_merge_notice_timer_pending = False
+        try:
+            bpy.context.window_manager.popup_menu(
+                _paste_merge_draw_popup,
+                title="SPARK 粘贴材质优化",
+                icon='INFO',
+            )
+        except Exception as e:
+            print(f"[SPARK] 粘贴合并提示失败: {e}")
+        return None
+
+    bpy.app.timers.register(_timer, first_interval=0.3)
 
 
 def get_principled_bsdf(material):
