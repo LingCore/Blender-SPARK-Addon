@@ -294,6 +294,140 @@ class MATERIAL_OT_cleanup_unused(Operator):
         return {'FINISHED'}
 
 
+# ==================== 合并重复后缀材质 ====================
+
+class MATERIAL_OT_merge_duplicates(Operator):
+    """将「材质名.001」等带数字后缀的材质合并到同名基础材质，或直接去掉后缀重命名"""
+    bl_idname = "material.merge_duplicates"
+    bl_label = "合并重复后缀材质"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def _collect_candidates(self):
+        """收集所有带 .NNN 后缀的材质，按基础名分组。
+
+        Returns:
+            dict[str, list]: {基础名: [后缀材质, ...]}
+            set: 已存在基础材质的基础名集合
+        """
+        groups = {}
+        has_base = set()
+        for mat in bpy.data.materials:
+            m = _MAT_SUFFIX_RE.match(mat.name)
+            if m:
+                base = m.group(1)
+                groups.setdefault(base, []).append(mat)
+        for base in list(groups.keys()):
+            if bpy.data.materials.get(base) is not None:
+                has_base.add(base)
+        return groups, has_base
+
+    def draw(self, context):
+        layout = self.layout
+        groups, has_base = self._collect_candidates()
+
+        if not groups:
+            box = layout.box()
+            box.label(text="没有带数字后缀的材质需要处理", icon='CHECKMARK')
+            return
+
+        remap_count = 0
+        rename_count = 0
+        for base, mats in groups.items():
+            if base in has_base:
+                remap_count += len(mats)
+            else:
+                rename_count += 1
+
+        box = layout.box()
+        box.label(text="材质统计:", icon='INFO')
+        box.label(text=f"  场景材质总数: {len(bpy.data.materials)}")
+        box.label(text=f"  带后缀材质: {sum(len(v) for v in groups.values())}")
+        if remap_count:
+            box.label(text=f"  将合并到基础材质: {remap_count}")
+        if rename_count:
+            box.label(text=f"  将直接重命名（无基础材质）: {rename_count}")
+
+        layout.separator()
+        box = layout.box()
+        box.label(text="处理预览:", icon='PRESET')
+        shown = 0
+        for base in sorted(groups.keys()):
+            mats = groups[base]
+            if base in has_base:
+                for mat in mats:
+                    box.label(text=f"  {mat.name}  →  合并到 {base}", icon='UV_SYNC_SELECT')
+                    shown += 1
+            else:
+                oldest = min(mats, key=lambda m: int(_MAT_SUFFIX_RE.match(m.name).group(2)))
+                box.label(text=f"  {oldest.name}  →  重命名为 {base}", icon='SORTALPHA')
+                shown += 1
+                for mat in mats:
+                    if mat != oldest:
+                        box.label(text=f"  {mat.name}  →  合并到 {base}", icon='UV_SYNC_SELECT')
+                        shown += 1
+            if shown >= 15:
+                remaining = sum(len(v) for v in groups.values()) - shown
+                if remaining > 0:
+                    box.label(text=f"  ... 还有 {remaining} 个材质")
+                break
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def execute(self, context):
+        groups, has_base = self._collect_candidates()
+        if not groups:
+            self.report({'INFO'}, "没有带数字后缀的材质需要处理")
+            return {'CANCELLED'}
+
+        merged_count = 0
+        renamed_count = 0
+        removed_count = 0
+
+        for base, mats in groups.items():
+            if base in has_base:
+                base_mat = bpy.data.materials[base]
+                for mat in mats:
+                    try:
+                        mat.user_remap(base_mat)
+                        merged_count += 1
+                    except RuntimeError as e:
+                        self.report({'WARNING'}, f"合并 {mat.name} 失败: {e}")
+            else:
+                oldest = min(mats, key=lambda m: int(_MAT_SUFFIX_RE.match(m.name).group(2)))
+                oldest.name = base
+                renamed_count += 1
+                remaining = [m for m in mats if m != oldest]
+                base_mat = oldest
+                for mat in remaining:
+                    try:
+                        mat.user_remap(base_mat)
+                        merged_count += 1
+                    except RuntimeError as e:
+                        self.report({'WARNING'}, f"合并 {mat.name} 失败: {e}")
+
+        for mat in list(bpy.data.materials):
+            if _MAT_SUFFIX_RE.match(mat.name) and mat.users == 0 and not mat.use_fake_user:
+                try:
+                    bpy.data.materials.remove(mat)
+                    removed_count += 1
+                except RuntimeError:
+                    pass
+
+        if merged_count or renamed_count:
+            clear_material_cache()
+
+        parts = []
+        if merged_count:
+            parts.append(f"合并 {merged_count} 个")
+        if renamed_count:
+            parts.append(f"重命名 {renamed_count} 个")
+        if removed_count:
+            parts.append(f"删除 {removed_count} 个")
+        self.report({'INFO'}, "材质整理完成: " + ", ".join(parts))
+        return {'FINISHED'}
+
+
 # ==================== 材质槽整理 ====================
 
 class MATERIAL_OT_cleanup_slots(Operator):
@@ -601,13 +735,12 @@ _paste_merge_notice_timer_pending = False
 
 _MAT_SUFFIX_RE = re.compile(r"^(.+)\.(\d{3})$")
 
-
 def merge_duplicate_suffixed_materials():
     """
-    将名称符合「基础名.001」且已存在「基础名」的材质合并到基础材质（user_remap），并删除已无用户的后缀块。
+    将带 .NNN 后缀且已存在同名基础材质的材质合并（user_remap）并删除。
 
     Returns:
-        bool: 是否执行了至少一次 user_remap（用于状态栏提示）。
+        bool: 是否执行了至少一次 user_remap。
     """
     global _paste_merge_in_progress
     if _paste_merge_in_progress:
@@ -827,6 +960,7 @@ def clear_material_cache():
 classes = (
     MATERIAL_OT_apply_to_selected,
     MATERIAL_OT_cleanup_unused,
+    MATERIAL_OT_merge_duplicates,
     MATERIAL_OT_cleanup_slots,
     MATERIAL_PT_quick_preview,
 )

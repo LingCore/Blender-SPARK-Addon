@@ -93,6 +93,9 @@ class VIEW3D_MT_material_tools(Menu):
         # 材质槽整理
         layout.operator("material.cleanup_slots", text="整理材质槽", icon='BRUSH_DATA')
         
+        # 合并重复后缀材质
+        layout.operator("material.merge_duplicates", text="合并重复后缀材质", icon='UV_SYNC_SELECT')
+        
         # 清理未使用材质
         layout.operator("material.cleanup_unused", text="清理未使用材质", icon='TRASH')
         
