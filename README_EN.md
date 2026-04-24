@@ -37,7 +37,10 @@ Blender already has Mirror—but batching objects, using **another object as the
 
 ### 📦 Batch export / rename / materials
 
-Renaming, exporting OBJ, and assigning materials doesn’t scale: you repeat the same work per asset. This adds **batch OBJ** (optional **origin info** sidecar), **regex rename** with conflict handling (skip / replace / suffix), **batch materials** (apply, tidy slots, purge unused), and optional **channel sync** against the active material.
+Renaming, exporting OBJ, and assigning materials doesn’t scale: you repeat the same work per asset. This adds **batch OBJ** (optional **origin info** sidecar), **regex rename** with conflict handling (skip / replace / suffix), and **material tools** (quick sync to a chosen material, batch apply, tidy slots, purge unused).
+
+- Origin info can be written as `ObjectName: { -2.350247f, 0.003200f, 0.911799f }`, JSON objects, or CSV, so developers can copy coordinates directly.
+- `Ctrl + Alt + M` opens a material picker and replaces selected mesh objects with the chosen material.
 
 ### 🔧 2D kinematics
 
@@ -52,7 +55,9 @@ With **Filmic / AgX** view transforms, what you **see in the viewport** and what
 | Feature | What it does |
 |---------|----------------|
 | **FPS overlay** | Live FPS in the corner; updates even when nothing moves. |
-| **Perf test** | Many random shaded cubes moving randomly—rough stress test. |
+| **Rotation snapshot / restore** | Alt+R clears rotation after saving a snapshot; Alt+Shift+R restores it. |
+| **Mode switch pie** | Hold Tab for a mode-switch pie; tap Tab still toggles Object/Edit mode. |
+| **Perf test** | Creates 500 random shaded cubes moving randomly—rough stress test. |
 | **One-click optimize** | Merge by distance, delete interior faces, dissolve degenerate geometry, decimate—one pass. |
 | **Smart numpad .** | Single click: frame selection; double click: **find the active object in the Outliner**. |
 
@@ -64,6 +69,7 @@ With **Filmic / AgX** view transforms, what you **see in the viewport** and what
 |--------|----------------|
 | **`` ` ``** (Accent Grave) | Opens the **enhanced tools pie menu** (main hub). |
 | **Mouse side button** (often Button4) | Same as above. |
+| **Hold Tab** | Opens the **mode switch pie**; tap Tab still toggles Object/Edit mode. |
 | **3D View sidebars** | Panels for transform, measure, align, kinematics, etc. |
 | **View** menu | WYSIWYG viewport render and related entries. |
 | **Add Modifier** menu | Mirror plus and related entries. |
@@ -100,8 +106,12 @@ With **Filmic / AgX** view transforms, what you **see in the viewport** and what
 | Hotkey | Action |
 |--------|--------|
 | `` ` `` / side button | **Enhanced tools pie menu** (main hub) |
+| Hold `Tab` | **Mode switch pie** |
 | `Ctrl + M` | Mirror plus |
 | `Ctrl + F` | Batch rename |
+| `Ctrl + Alt + M` | Sync selected objects to a chosen material |
+| `Alt + R` | Clear rotation after saving a snapshot |
+| `Alt + Shift + R` | Restore rotation snapshot |
 | Numpad `.` | Smart frame / outliner focus |
 
 > Hotkeys apply when the add-on is enabled and **no other add-on** uses the same bindings. Adjust under **Preferences → Keymap** if needed (search for `bofu` / `SPARK`).
