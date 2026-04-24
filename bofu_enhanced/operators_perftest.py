@@ -3,7 +3,7 @@
 bofu_enhanced/operators_perftest.py
 
 性能测试功能：
-- BOFU_OT_perftest_create: 创建200个随机材质立方体
+- BOFU_OT_perftest_create: 创建500个随机材质立方体
 - BOFU_OT_perftest_start: 开始 Modal Timer 随机运动测试
 - BOFU_OT_perftest_stop: 停止测试
 """
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 PERFTEST_PREFIX = "PerfTest_"
 PERFTEST_MAT_PREFIX = "PerfTestMat_"
-CUBE_COUNT = 200
+CUBE_COUNT = 500
 SPAWN_RANGE = 5.0       # 立方体初始分布范围 (±m)
 CUBE_SIZE = 0.15         # 立方体半边长 (m)
 MOVE_SPEED = 0.05        # 每帧最大随机位移 (m)
@@ -125,10 +125,10 @@ def _create_cube_mesh(name):
 # ==================== 操作符 ====================
 
 class BOFU_OT_perftest_create(Operator):
-    """创建200个随机材质立方体用于性能测试"""
+    """创建500个随机材质立方体用于性能测试"""
     bl_idname = "bofu.perftest_create"
     bl_label = "创建测试模型"
-    bl_description = "在世界原点附近创建200个不同材质的立方体"
+    bl_description = "在世界原点附近创建500个不同材质的立方体"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):

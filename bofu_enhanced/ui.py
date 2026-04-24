@@ -7,7 +7,9 @@ bofu_enhanced/ui.py
 
 import bpy
 import bmesh
+import time
 from bpy.types import Menu, Panel, Operator
+from bpy.props import StringProperty
 from mathutils import Vector
 
 from .utils import format_value
@@ -58,6 +60,95 @@ class VIEW3D_MT_PIE_bofu_tools(Menu):
         
         # 右下 (Southeast) - 对齐工具（弹出独立菜单，不打断饼图）
         pie.operator("bofu.popup_align_menu", text="对齐工具", icon='ALIGN_CENTER')
+
+
+MODE_LABELS = {
+    'OBJECT': '物体模式',
+    'EDIT': '编辑模式',
+    'POSE': '姿态模式',
+    'SCULPT': '雕刻模式',
+    'VERTEX_PAINT': '顶点绘制',
+    'WEIGHT_PAINT': '权重绘制',
+    'TEXTURE_PAINT': '纹理绘制',
+}
+
+MODE_ICONS = {
+    'OBJECT': 'OBJECT_DATAMODE',
+    'EDIT': 'EDITMODE_HLT',
+    'POSE': 'POSE_HLT',
+    'SCULPT': 'SCULPTMODE_HLT',
+    'VERTEX_PAINT': 'VPAINT_HLT',
+    'WEIGHT_PAINT': 'WPAINT_HLT',
+    'TEXTURE_PAINT': 'TPAINT_HLT',
+}
+
+
+def _supports_edit_mode(obj):
+    return obj and obj.type in {
+        'MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'ARMATURE', 'LATTICE', 'GPENCIL', 'GREASEPENCIL'
+    }
+
+
+def _can_switch_mode(context, mode):
+    obj = context.active_object
+    if mode == 'OBJECT':
+        return obj is not None or context.mode != 'OBJECT'
+    if not obj:
+        return False
+    if mode == 'EDIT':
+        return _supports_edit_mode(obj)
+    if mode == 'POSE':
+        return obj.type == 'ARMATURE'
+    if mode in {'SCULPT', 'VERTEX_PAINT', 'WEIGHT_PAINT', 'TEXTURE_PAINT'}:
+        return obj.type == 'MESH'
+    return False
+
+
+def _mode_set(context, mode):
+    if mode != 'OBJECT' and context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    if mode == 'EDIT':
+        bpy.ops.object.mode_set(mode='EDIT')
+    else:
+        bpy.ops.object.mode_set(mode=mode)
+
+
+def _toggle_tab_default(context):
+    obj = context.active_object
+    if context.mode == 'OBJECT':
+        if _supports_edit_mode(obj):
+            bpy.ops.object.mode_set(mode='EDIT')
+            return True
+        return False
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return True
+
+
+def _add_mode_pie_item(pie, context, mode):
+    op = pie.operator(
+        "bofu.set_object_mode",
+        text=MODE_LABELS[mode],
+        icon=MODE_ICONS[mode],
+    )
+    op.mode = mode
+
+
+class VIEW3D_MT_PIE_bofu_mode_switch(Menu):
+    """长按 Tab 呼出的模式切换饼图"""
+    bl_idname = "VIEW3D_MT_PIE_bofu_mode_switch"
+    bl_label = "模式切换"
+
+    def draw(self, context):
+        pie = self.layout.menu_pie()
+
+        _add_mode_pie_item(pie, context, 'OBJECT')
+        _add_mode_pie_item(pie, context, 'EDIT')
+        _add_mode_pie_item(pie, context, 'POSE')
+        _add_mode_pie_item(pie, context, 'SCULPT')
+        _add_mode_pie_item(pie, context, 'VERTEX_PAINT')
+        _add_mode_pie_item(pie, context, 'WEIGHT_PAINT')
+        _add_mode_pie_item(pie, context, 'TEXTURE_PAINT')
+        pie.operator("bofu.toggle_object_edit_mode", text="物体/编辑", icon='UV_SYNC_SELECT')
 
 
 def _draw_material_sync_ui(layout, context):
@@ -231,6 +322,111 @@ class BOFU_OT_call_pie_menu(Operator):
     def execute(self, context):
         bpy.ops.wm.call_menu_pie(name="VIEW3D_MT_PIE_bofu_tools")
         return {'FINISHED'}
+
+
+class BOFU_OT_set_object_mode(Operator):
+    """切换到指定对象模式"""
+    bl_idname = "bofu.set_object_mode"
+    bl_label = "切换模式"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    mode: StringProperty(default='OBJECT')
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None or context.mode != 'OBJECT'
+
+    def execute(self, context):
+        if not _can_switch_mode(context, self.mode):
+            label = MODE_LABELS.get(self.mode, self.mode)
+            self.report({'WARNING'}, f"当前对象不支持{label}")
+            return {'CANCELLED'}
+
+        try:
+            _mode_set(context, self.mode)
+        except RuntimeError as e:
+            label = MODE_LABELS.get(self.mode, self.mode)
+            self.report({'WARNING'}, f"无法切换到{label}: {e}")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class BOFU_OT_toggle_object_edit_mode(Operator):
+    """在物体模式和编辑模式之间切换"""
+    bl_idname = "bofu.toggle_object_edit_mode"
+    bl_label = "物体/编辑切换"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None or context.mode != 'OBJECT'
+
+    def execute(self, context):
+        try:
+            if not _toggle_tab_default(context):
+                self.report({'WARNING'}, "当前对象不支持编辑模式")
+                return {'CANCELLED'}
+        except RuntimeError as e:
+            self.report({'WARNING'}, f"物体/编辑切换失败: {e}")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class BOFU_OT_tab_mode_pie(Operator):
+    """短按 Tab 保留默认切换，长按 Tab 呼出模式饼图"""
+    bl_idname = "bofu.tab_mode_pie"
+    bl_label = "长按 Tab 模式切换"
+    bl_options = {'REGISTER'}
+
+    hold_threshold = 0.1
+
+    _timer = None
+    _start_time = 0.0
+    _pie_opened = False
+
+    @classmethod
+    def poll(cls, context):
+        return context.area and context.area.type == 'VIEW_3D'
+
+    def invoke(self, context, event):
+        if event.value != 'PRESS' or event.ctrl or event.alt or event.shift or event.oskey:
+            return {'PASS_THROUGH'}
+
+        self._start_time = time.monotonic()
+        self._pie_opened = False
+        self._timer = context.window_manager.event_timer_add(0.03, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if event.type == 'TIMER' and not self._pie_opened:
+            if time.monotonic() - self._start_time >= self.hold_threshold:
+                self._finish_timer(context)
+                self._pie_opened = True
+                bpy.ops.wm.call_menu_pie(name=VIEW3D_MT_PIE_bofu_mode_switch.bl_idname)
+                return {'FINISHED'}
+
+        if event.type == 'TAB' and event.value == 'RELEASE':
+            self._finish_timer(context)
+            if not self._pie_opened:
+                try:
+                    if not _toggle_tab_default(context):
+                        return {'PASS_THROUGH'}
+                except RuntimeError as e:
+                    self.report({'WARNING'}, f"Tab 切换模式失败: {e}")
+                    return {'CANCELLED'}
+            return {'FINISHED'}
+
+        if event.type in {'ESC', 'RIGHTMOUSE'}:
+            self._finish_timer(context)
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    def _finish_timer(self, context):
+        if self._timer is not None:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
 
 
 class BOFU_OT_popup_annotation_menu(Operator):
@@ -768,11 +964,15 @@ class KINEMATICS_PT_main_panel(bpy.types.Panel):
 
 classes = (
     VIEW3D_MT_PIE_bofu_tools,
+    VIEW3D_MT_PIE_bofu_mode_switch,
     VIEW3D_MT_material_tools,
     VIEW3D_MT_misc_tools,
     VIEW3D_MT_annotation_manage,
     VIEW3D_MT_align_tools,
     BOFU_OT_call_pie_menu,
+    BOFU_OT_set_object_mode,
+    BOFU_OT_toggle_object_edit_mode,
+    BOFU_OT_tab_mode_pie,
     BOFU_OT_popup_annotation_menu,
     BOFU_OT_popup_align_menu,
     BOFU_OT_popup_misc_menu,

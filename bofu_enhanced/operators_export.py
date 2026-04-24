@@ -6,6 +6,7 @@ bofu_enhanced/operators_export.py
 """
 
 import bpy
+import json
 import logging
 import os
 from bpy.types import Operator
@@ -21,17 +22,17 @@ ORIGIN_FORMAT_ITEMS = [
     (
         ORIGIN_FORMAT_FLOAT_INITIALIZER,
         "Float 初始化器",
-        "{ -2.350247f, 0.003200f, 0.911799f }",
+        "模型名: { -2.350247f, 0.003200f, 0.911799f }",
     ),
     (
         ORIGIN_FORMAT_JSON_ARRAY,
-        "JSON 数组",
-        "[-2.350247, 0.003200, 0.911799]",
+        "JSON 对象",
+        "{\"name\":\"模型名\",\"origin\":[-2.350247,0.003200,0.911799]}",
     ),
     (
         ORIGIN_FORMAT_CSV,
         "CSV",
-        "-2.350247,0.003200,0.911799",
+        "模型名,-2.350247,0.003200,0.911799",
     ),
 ]
 
@@ -43,6 +44,7 @@ def format_float_literal(value):
 
 def format_origin_initializer(data):
     return (
+        f"{data['name']}: "
         f"{{ {format_float_literal(data['x'])}, "
         f"{format_float_literal(data['y'])}, "
         f"{format_float_literal(data['z'])} }}"
@@ -50,11 +52,18 @@ def format_origin_initializer(data):
 
 
 def format_origin_json_array(data):
-    return f"[{data['x']:.6f}, {data['y']:.6f}, {data['z']:.6f}]"
+    payload = {
+        "name": data["name"],
+        "origin": [data["x"], data["y"], data["z"]],
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def format_origin_csv(data):
-    return f"{data['x']:.6f},{data['y']:.6f},{data['z']:.6f}"
+    name = str(data["name"])
+    if any(ch in name for ch in [",", '"', "\n", "\r"]):
+        name = '"' + name.replace('"', '""') + '"'
+    return f"{name},{data['x']:.6f},{data['y']:.6f},{data['z']:.6f}"
 
 
 def format_origin_line(data, origin_format):

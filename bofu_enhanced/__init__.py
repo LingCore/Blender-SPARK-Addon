@@ -31,7 +31,7 @@ bl_info = {
     "author": "LingCore",
     "version": (3, 3, 3),
     "blender": (4, 2, 0),
-    "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F, Ctrl+Alt+M",
+    "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, 长按 Tab 切换模式, Ctrl+M, Ctrl+F, Ctrl+Alt+M",
     "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器，所见即所得视口渲染，一键模型优化",
     "warning": "",
     "doc_url": "",
@@ -344,6 +344,23 @@ def register():
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
         kmi = km.keymap_items.new(operators_object.OBJECT_OT_batch_rename.bl_idname, type="F", value="PRESS", ctrl=True)
         addon_keymaps.append((km, kmi))
+        
+        # Tab: 短按保持默认物体/编辑切换，长按弹出模式切换饼图
+        for keymap_name, space_type in (
+            ("3D View", "VIEW_3D"),
+            ("Object Mode", "EMPTY"),
+            ("Mesh", "EMPTY"),
+            ("Curve", "EMPTY"),
+            ("Armature", "EMPTY"),
+            ("Pose", "EMPTY"),
+            ("Sculpt", "EMPTY"),
+            ("Vertex Paint", "EMPTY"),
+            ("Weight Paint", "EMPTY"),
+            ("Image Paint", "EMPTY"),
+        ):
+            km = kc.keymaps.new(name=keymap_name, space_type=space_type)
+            kmi = km.keymap_items.new(ui.BOFU_OT_tab_mode_pie.bl_idname, type="TAB", value="PRESS")
+            addon_keymaps.append((km, kmi))
         
         # 波浪键 (`): 饼图菜单
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
