@@ -4,6 +4,7 @@ bofu_enhanced/operators_material.py
 
 批量材质管理相关操作符，包括：
 - MATERIAL_OT_apply_to_selected: 批量应用材质
+- MATERIAL_OT_quick_sync_material: 一键将选中对象同步为指定材质
 - MATERIAL_OT_cleanup_unused: 清理未使用材质
 - MATERIAL_OT_cleanup_slots: 材质槽整理
 - 材质自动同步系统
@@ -16,6 +17,67 @@ from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty, BoolProperty
 
 logger = logging.getLogger(__name__)
+
+
+class MATERIAL_OT_quick_sync_material(Operator):
+    """弹窗选择材质，并将所有选中网格对象统一替换为该材质"""
+    bl_idname = "material.quick_sync_material"
+    bl_label = "同步为指定材质"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    target_material: StringProperty(
+        name="目标材质",
+        description="选中对象将统一替换为这个材质",
+        default="",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return any(obj.type == 'MESH' for obj in context.selected_objects)
+
+    def draw(self, context):
+        layout = self.layout
+        targets = [
+            obj for obj in context.selected_objects
+            if obj.type == 'MESH'
+        ]
+
+        layout.prop_search(self, "target_material", bpy.data, "materials", text="目标材质", icon='MATERIAL')
+        layout.label(text=f"将覆盖 {len(targets)} 个选中网格对象的材质槽", icon='OBJECT_DATA')
+
+    def invoke(self, context, event):
+        if not self.target_material:
+            active = context.active_object
+            if active and active.type == 'MESH' and active.active_material:
+                self.target_material = active.active_material.name
+            elif bpy.data.materials:
+                self.target_material = bpy.data.materials[0].name
+        return context.window_manager.invoke_props_dialog(self, width=360)
+
+    def execute(self, context):
+        selected_meshes = [obj for obj in context.selected_objects if obj.type == 'MESH']
+        if not selected_meshes:
+            self.report({'ERROR'}, "未选中任何网格对象")
+            return {'CANCELLED'}
+
+        material = bpy.data.materials.get(self.target_material)
+        if material is None:
+            self.report({'ERROR'}, "请选择要同步的目标材质")
+            return {'CANCELLED'}
+
+        success_count = 0
+        for obj in selected_meshes:
+            if not obj.data:
+                continue
+            obj.data.materials.clear()
+            obj.data.materials.append(material)
+            for polygon in obj.data.polygons:
+                polygon.material_index = 0
+            success_count += 1
+
+        cache_material_state(material)
+        self.report({'INFO'}, f"已将材质 '{material.name}' 同步到 {success_count} 个对象")
+        return {'FINISHED'}
 
 
 class MATERIAL_OT_apply_to_selected(Operator):
@@ -713,6 +775,8 @@ class MATERIAL_PT_quick_preview(bpy.types.Panel):
         box = layout.box()
         box.label(text="材质工具:", icon='TOOL_SETTINGS')
         col = box.column(align=True)
+        col.operator_context = 'INVOKE_DEFAULT'
+        col.operator("material.quick_sync_material", text="同步为指定材质", icon='MATERIAL')
         col.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
         col.operator("material.cleanup_unused", text="清理未使用材质", icon='TRASH')
 
@@ -958,6 +1022,7 @@ def clear_material_cache():
 # ==================== 类注册列表 ====================
 
 classes = (
+    MATERIAL_OT_quick_sync_material,
     MATERIAL_OT_apply_to_selected,
     MATERIAL_OT_cleanup_unused,
     MATERIAL_OT_merge_duplicates,

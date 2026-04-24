@@ -13,7 +13,56 @@ from bpy.props import StringProperty, EnumProperty, FloatProperty, BoolProperty
 
 logger = logging.getLogger(__name__)
 
-from .utils import format_value
+ORIGIN_FORMAT_FLOAT_INITIALIZER = 'FLOAT_INITIALIZER'
+ORIGIN_FORMAT_JSON_ARRAY = 'JSON_ARRAY'
+ORIGIN_FORMAT_CSV = 'CSV'
+
+ORIGIN_FORMAT_ITEMS = [
+    (
+        ORIGIN_FORMAT_FLOAT_INITIALIZER,
+        "Float 初始化器",
+        "{ -2.350247f, 0.003200f, 0.911799f }",
+    ),
+    (
+        ORIGIN_FORMAT_JSON_ARRAY,
+        "JSON 数组",
+        "[-2.350247, 0.003200, 0.911799]",
+    ),
+    (
+        ORIGIN_FORMAT_CSV,
+        "CSV",
+        "-2.350247,0.003200,0.911799",
+    ),
+]
+
+
+def format_float_literal(value):
+    """格式化为开发可直接粘贴的 float 字面量。"""
+    return f"{value:.6f}f"
+
+
+def format_origin_initializer(data):
+    return (
+        f"{{ {format_float_literal(data['x'])}, "
+        f"{format_float_literal(data['y'])}, "
+        f"{format_float_literal(data['z'])} }}"
+    )
+
+
+def format_origin_json_array(data):
+    return f"[{data['x']:.6f}, {data['y']:.6f}, {data['z']:.6f}]"
+
+
+def format_origin_csv(data):
+    return f"{data['x']:.6f},{data['y']:.6f},{data['z']:.6f}"
+
+
+def format_origin_line(data, origin_format):
+    if origin_format == ORIGIN_FORMAT_JSON_ARRAY:
+        return format_origin_json_array(data)
+    if origin_format == ORIGIN_FORMAT_CSV:
+        return format_origin_csv(data)
+    return format_origin_initializer(data)
 
 
 class EXPORT_OT_batch_obj_with_origin(Operator):
@@ -67,6 +116,12 @@ class EXPORT_OT_batch_obj_with_origin(Operator):
         name="只导出原点信息",
         default=False
     )
+    origin_format: EnumProperty(
+        name="原点格式",
+        description="origin_info.txt 中每个原点坐标的输出格式",
+        items=ORIGIN_FORMAT_ITEMS,
+        default=ORIGIN_FORMAT_FLOAT_INITIALIZER,
+    )
 
     def draw(self, context):
         layout = self.layout
@@ -83,6 +138,9 @@ class EXPORT_OT_batch_obj_with_origin(Operator):
         box.label(text="原点信息:", icon='EMPTY_AXIS')
         box.prop(self, "export_origin_info")
         box.prop(self, "only_export_origin")
+        row = box.row()
+        row.enabled = self.export_origin_info or self.only_export_origin
+        row.prop(self, "origin_format")
         layout.separator()
         meshes = [o for o in context.selected_objects if o.type == 'MESH']
         layout.label(text=f"将导出 {len(meshes)} 个网格对象", icon='INFO')
@@ -150,10 +208,7 @@ class EXPORT_OT_batch_obj_with_origin(Operator):
             try:
                 with open(origin_info_file, 'w', encoding='utf-8') as f:
                     for data in origin_data:
-                        x = format_value(data['x'])
-                        y = format_value(data['y'])
-                        z = format_value(data['z'])
-                        f.write(f"{data['name']}({x}, {y}, {z})\n")
+                        f.write(f"{format_origin_line(data, self.origin_format)}\n")
                 self.report({'INFO'}, f"原点信息已写入: {origin_info_file}")
             except Exception as e:
                 self.report({'WARNING'}, f"写入原点信息时发生错误: {str(e)}")

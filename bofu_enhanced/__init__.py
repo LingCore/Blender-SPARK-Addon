@@ -31,7 +31,7 @@ bl_info = {
     "author": "LingCore",
     "version": (3, 3, 3),
     "blender": (4, 2, 0),
-    "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F",
+    "location": "View3D > ` 键或鼠标侧键呼出饼图菜单, Ctrl+M, Ctrl+F, Ctrl+Alt+M",
     "description": "批量导出OBJ文件，高精度变换显示，批量材质管理，增强镜像功能，名称批量替换，饼图快捷菜单，智能测量标注，机构运动学求解器，所见即所得视口渲染，一键模型优化",
     "warning": "",
     "doc_url": "",
@@ -321,6 +321,20 @@ def register():
         addon_keymaps.append((km, kmi))
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
         kmi = km.keymap_items.new(operators_object.OBJECT_OT_mirror_plus.bl_idname, type="M", value="PRESS", ctrl=True)
+        addon_keymaps.append((km, kmi))
+        
+        # Ctrl+Alt+M: 弹窗选择材质并同步到选中对象
+        km = kc.keymaps.new(name="Object Mode", space_type="EMPTY")
+        kmi = km.keymap_items.new(
+            operators_material.MATERIAL_OT_quick_sync_material.bl_idname,
+            type="M", value="PRESS", ctrl=True, alt=True,
+        )
+        addon_keymaps.append((km, kmi))
+        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
+        kmi = km.keymap_items.new(
+            operators_material.MATERIAL_OT_quick_sync_material.bl_idname,
+            type="M", value="PRESS", ctrl=True, alt=True,
+        )
         addon_keymaps.append((km, kmi))
         
         # Ctrl+F: 名称批量替换

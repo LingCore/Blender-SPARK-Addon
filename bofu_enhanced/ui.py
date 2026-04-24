@@ -85,7 +85,7 @@ class VIEW3D_MT_material_tools(Menu):
         # 导致 invoke() 被跳过、invoke_props_dialog 无法弹出，必须显式设置。
         layout.operator_context = 'INVOKE_DEFAULT'
         
-        # 批量应用材质
+        layout.operator("material.quick_sync_material", text="同步为指定材质", icon='MATERIAL')
         layout.operator("material.apply_to_selected", text="批量应用材质", icon='MATERIAL')
         
         layout.separator()
