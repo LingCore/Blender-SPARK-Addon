@@ -56,7 +56,7 @@ With **Filmic / AgX** view transforms, what you **see in the viewport** and what
 |---------|----------------|
 | **FPS overlay** | Live FPS in the corner; updates even when nothing moves. |
 | **Rotation snapshot / restore** | Alt+R clears rotation after saving a snapshot; Alt+Shift+R restores it. |
-| **Mode switch pie** | Hold Tab for a mode-switch pie; tap Tab still toggles Object/Edit mode. |
+| **Modeling mode pie** | Hold Tab for a trimmed mode pie: Object, Vertex Edit, Edge Edit, Face Edit, and Pose; tapping Tab still toggles Object/Edit mode. |
 | **Perf test** | Creates 500 random shaded cubes moving randomly—rough stress test. |
 | **One-click optimize** | Merge by distance, delete interior faces, dissolve degenerate geometry, decimate—one pass. |
 | **Smart numpad .** | Single click: frame selection; double click: **find the active object in the Outliner**. |
@@ -69,7 +69,7 @@ With **Filmic / AgX** view transforms, what you **see in the viewport** and what
 |--------|----------------|
 | **`` ` ``** (Accent Grave) | Opens the **enhanced tools pie menu** (main hub). |
 | **Mouse side button** (often Button4) | Same as above. |
-| **Hold Tab** | Opens the **mode switch pie**; tap Tab still toggles Object/Edit mode. |
+| **Hold Tab** | Opens the **modeling mode pie**: Object, Vertex Edit, Edge Edit, Face Edit, and Pose; tapping Tab still toggles Object/Edit mode. |
 | **3D View sidebars** | Panels for transform, measure, align, kinematics, etc. |
 | **View** menu | WYSIWYG viewport render and related entries. |
 | **Add Modifier** menu | Mirror plus and related entries. |
@@ -106,7 +106,7 @@ With **Filmic / AgX** view transforms, what you **see in the viewport** and what
 | Hotkey | Action |
 |--------|--------|
 | `` ` `` / side button | **Enhanced tools pie menu** (main hub) |
-| Hold `Tab` | **Mode switch pie** |
+| Hold `Tab` | **Modeling mode pie**: Object, Vertex Edit, Edge Edit, Face Edit, and Pose |
 | `Ctrl + M` | Mirror plus |
 | `Ctrl + F` | Batch rename |
 | `Ctrl + Alt + M` | Sync selected objects to a chosen material |

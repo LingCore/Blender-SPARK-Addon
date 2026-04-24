@@ -82,6 +82,18 @@ MODE_ICONS = {
     'TEXTURE_PAINT': 'TPAINT_HLT',
 }
 
+MESH_EDIT_SELECT_LABELS = {
+    'VERT': '顶点编辑',
+    'EDGE': '边编辑',
+    'FACE': '面编辑',
+}
+
+MESH_EDIT_SELECT_ICONS = {
+    'VERT': 'VERTEXSEL',
+    'EDGE': 'EDGESEL',
+    'FACE': 'FACESEL',
+}
+
 
 def _supports_edit_mode(obj):
     return obj and obj.type in {
@@ -113,6 +125,24 @@ def _mode_set(context, mode):
         bpy.ops.object.mode_set(mode=mode)
 
 
+def _has_mesh_for_edit_select(context):
+    obj = context.active_object
+    return obj is not None and obj.type == 'MESH'
+
+
+def _set_mesh_edit_select_mode(context, select_mode):
+    if not _has_mesh_for_edit_select(context):
+        return False
+
+    if context.mode != 'EDIT_MESH':
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.mode_set(mode='EDIT')
+
+    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type=select_mode)
+    return True
+
+
 def _toggle_tab_default(context):
     obj = context.active_object
     if context.mode == 'OBJECT':
@@ -133,6 +163,15 @@ def _add_mode_pie_item(pie, context, mode):
     op.mode = mode
 
 
+def _add_mesh_edit_select_pie_item(pie, select_mode):
+    op = pie.operator(
+        "bofu.set_mesh_edit_select_mode",
+        text=MESH_EDIT_SELECT_LABELS[select_mode],
+        icon=MESH_EDIT_SELECT_ICONS[select_mode],
+    )
+    op.select_mode = select_mode
+
+
 class VIEW3D_MT_PIE_bofu_mode_switch(Menu):
     """长按 Tab 呼出的模式切换饼图"""
     bl_idname = "VIEW3D_MT_PIE_bofu_mode_switch"
@@ -142,13 +181,15 @@ class VIEW3D_MT_PIE_bofu_mode_switch(Menu):
         pie = self.layout.menu_pie()
 
         _add_mode_pie_item(pie, context, 'OBJECT')
-        _add_mode_pie_item(pie, context, 'EDIT')
+
+        if _has_mesh_for_edit_select(context):
+            _add_mesh_edit_select_pie_item(pie, 'FACE')
+            _add_mesh_edit_select_pie_item(pie, 'EDGE')
+            _add_mesh_edit_select_pie_item(pie, 'VERT')
+        else:
+            _add_mode_pie_item(pie, context, 'EDIT')
+
         _add_mode_pie_item(pie, context, 'POSE')
-        _add_mode_pie_item(pie, context, 'SCULPT')
-        _add_mode_pie_item(pie, context, 'VERTEX_PAINT')
-        _add_mode_pie_item(pie, context, 'WEIGHT_PAINT')
-        _add_mode_pie_item(pie, context, 'TEXTURE_PAINT')
-        pie.operator("bofu.toggle_object_edit_mode", text="物体/编辑", icon='UV_SYNC_SELECT')
 
 
 def _draw_material_sync_ui(layout, context):
@@ -346,6 +387,30 @@ class BOFU_OT_set_object_mode(Operator):
             _mode_set(context, self.mode)
         except RuntimeError as e:
             label = MODE_LABELS.get(self.mode, self.mode)
+            self.report({'WARNING'}, f"无法切换到{label}: {e}")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class BOFU_OT_set_mesh_edit_select_mode(Operator):
+    """进入网格编辑模式并切换到指定组件选择模式"""
+    bl_idname = "bofu.set_mesh_edit_select_mode"
+    bl_label = "网格组件编辑模式"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    select_mode: StringProperty(default='VERT')
+
+    @classmethod
+    def poll(cls, context):
+        return _has_mesh_for_edit_select(context)
+
+    def execute(self, context):
+        label = MESH_EDIT_SELECT_LABELS.get(self.select_mode, self.select_mode)
+        try:
+            if not _set_mesh_edit_select_mode(context, self.select_mode):
+                self.report({'WARNING'}, "当前对象不是网格，无法切换组件编辑模式")
+                return {'CANCELLED'}
+        except RuntimeError as e:
             self.report({'WARNING'}, f"无法切换到{label}: {e}")
             return {'CANCELLED'}
         return {'FINISHED'}
@@ -971,6 +1036,7 @@ classes = (
     VIEW3D_MT_align_tools,
     BOFU_OT_call_pie_menu,
     BOFU_OT_set_object_mode,
+    BOFU_OT_set_mesh_edit_select_mode,
     BOFU_OT_toggle_object_edit_mode,
     BOFU_OT_tab_mode_pie,
     BOFU_OT_popup_annotation_menu,
